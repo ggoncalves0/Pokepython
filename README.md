@@ -28,7 +28,7 @@ Bulbasaur, Charmander, Pikachu, Gengar, Gyarados e Dragonite.
 
 1. Clone o repositório:
    ```bash
-   git clone https://github.com/SEU-USUARIO/Pokepython.git
+   git clone https://github.com/ggoncalves0/Pokepython.git
    cd Pokepython
    ```
 
