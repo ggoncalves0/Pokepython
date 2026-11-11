@@ -1,49 +1,56 @@
-"""Janela da Pokédex feita com Tkinter."""
+"""Janela da Pokédex, com visual moderno feito com CustomTkinter."""
 
 import tkinter as tk
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from io import BytesIO
-from tkinter import ttk
+from typing import NamedTuple
 
-from PIL import Image, ImageTk
+import customtkinter as ctk
+from PIL import Image
 
 from .models import PokedexEntry, Pokemon, PokemonRepository
 
-BACKGROUND = "#feffff"
-TEXT_COLOR = "#444466"
-DETAIL_COLOR = "#403d3d"
-SELECTION_COLOR = "#6f9fbd"
-ERROR_COLOR = "#e06636"
+APP_BACKGROUND = "#16171d"
+SIDEBAR_COLOR = "#1f2029"
+CARD_COLOR = "#262834"
+HOVER_COLOR = "#323545"
+TEXT_COLOR = "#f1f1f4"
+MUTED_COLOR = "#9a9cb0"
+DARK_TEXT_COLOR = "#1c1c1c"
+ACCENT_COLOR = "#e3350d"  # o vermelho clássico da Pokédex
+ERROR_COLOR = "#ff6b6b"
 
-NAME_FONT = ("Fixedsys", 20)
-TITLE_FONT = ("Verdana", 16)
-BOLD_FONT = ("Verdana", 10, "bold")
-TEXT_FONT = ("Verdana", 10)
-
-IMAGE_SIZE = 240
+ARTWORK_SIZE = 230
+MAX_BASE_STAT = 255  # maior valor que um stat base pode ter nos jogos
 CHECK_INTERVAL_MS = 50
 CONNECTION_ERROR = "Sem conexão com a PokéAPI."
 
-TYPE_NAMES = {
-    "normal": "Normal",
-    "fire": "Fogo",
-    "water": "Água",
-    "electric": "Elétrico",
-    "grass": "Planta",
-    "ice": "Gelo",
-    "fighting": "Lutador",
-    "poison": "Venenoso",
-    "ground": "Terrestre",
-    "flying": "Voador",
-    "psychic": "Psíquico",
-    "bug": "Inseto",
-    "rock": "Pedra",
-    "ghost": "Fantasma",
-    "dragon": "Dragão",
-    "dark": "Sombrio",
-    "steel": "Aço",
-    "fairy": "Fada",
+
+class TypeStyle(NamedTuple):
+    label: str
+    color: str
+
+
+TYPES = {
+    "normal": TypeStyle("Normal", "#A8A77A"),
+    "fire": TypeStyle("Fogo", "#EE8130"),
+    "water": TypeStyle("Água", "#6390F0"),
+    "electric": TypeStyle("Elétrico", "#F7D02C"),
+    "grass": TypeStyle("Planta", "#7AC74C"),
+    "ice": TypeStyle("Gelo", "#96D9D6"),
+    "fighting": TypeStyle("Lutador", "#C22E28"),
+    "poison": TypeStyle("Venenoso", "#A33EA1"),
+    "ground": TypeStyle("Terrestre", "#E2BF65"),
+    "flying": TypeStyle("Voador", "#A98FF3"),
+    "psychic": TypeStyle("Psíquico", "#F95587"),
+    "bug": TypeStyle("Inseto", "#A6B91A"),
+    "rock": TypeStyle("Pedra", "#B6A136"),
+    "ghost": TypeStyle("Fantasma", "#735797"),
+    "dragon": TypeStyle("Dragão", "#6F35FC"),
+    "dark": TypeStyle("Sombrio", "#705746"),
+    "steel": TypeStyle("Aço", "#B7B7CE"),
+    "fairy": TypeStyle("Fada", "#D685AD"),
 }
 
 STAT_NAMES = {
@@ -60,134 +67,274 @@ def format_number(number: int) -> str:
     return f"#{number:03}"
 
 
-def format_types(pokemon: Pokemon) -> str:
-    return " / ".join(TYPE_NAMES[name] for name in pokemon.types)
+def type_styles(pokemon: Pokemon) -> list[TypeStyle]:
+    return [TYPES[name] for name in pokemon.types]
 
 
-def format_stats(pokemon: Pokemon) -> str:
-    lines = [
-        f"{label}: {pokemon.stats[name]}" for name, label in STAT_NAMES.items()
-    ]
-    lines.append(f"Total: {pokemon.total}")
-    return "\n".join(lines)
+def stat_rows(pokemon: Pokemon) -> list[tuple[str, int]]:
+    return [(label, pokemon.stats[name]) for name, label in STAT_NAMES.items()]
 
 
-def format_abilities(pokemon: Pokemon) -> str:
-    lines = list(pokemon.abilities)
+def ability_rows(pokemon: Pokemon) -> list[tuple[str, bool]]:
+    """Habilidades na ordem de exibição, indicando qual é a oculta."""
+    rows = [(name, False) for name in pokemon.abilities]
     if pokemon.hidden_ability:
-        lines.append(f"{pokemon.hidden_ability} (oculta)")
-    return "\n".join(lines)
+        rows.append((pokemon.hidden_ability, True))
+    return rows
 
 
-def make_label(
-    parent: tk.Misc, font: tuple, color: str = TEXT_COLOR, **options
-) -> tk.Label:
-    """Cria um Label com o visual padrão da Pokédex."""
-    return tk.Label(
-        parent, font=font, bg=BACKGROUND, fg=color,
-        anchor="w", justify="left", **options,
-    )
+def readable_text_color(background: str) -> str:
+    """Escolhe texto claro ou escuro, o que contrastar mais com o fundo.
+
+    Usa a luminância relativa da WCAG: acima de ~0,18 o texto escuro tem
+    mais contraste que o branco.
+    """
+    channels = [int(background[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    red, green, blue = [
+        c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+        for c in channels
+    ]
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    return DARK_TEXT_COLOR if luminance > 0.18 else TEXT_COLOR
+
+
+def clear(frame: tk.Misc) -> None:
+    for child in frame.winfo_children():
+        child.destroy()
 
 
 class PokedexWindow:
-    """Janela principal: detalhes à esquerda e a lista dos 151 à direita."""
+    """Janela principal: busca e lista à esquerda, detalhes à direita."""
 
-    def __init__(self, root: tk.Tk, repository: PokemonRepository) -> None:
-        self._root = root
+    def __init__(self, repository: PokemonRepository) -> None:
+        ctk.set_appearance_mode("dark")
+        self._root = ctk.CTk(fg_color=APP_BACKGROUND)
         self._repository = repository
         self._executor = ThreadPoolExecutor(max_workers=1)
-        self._entries: list[PokedexEntry] = []
+        self._buttons: dict[int, ctk.CTkButton] = {}
+        self._selected: int | None = None
         self._pending: Future | None = None
-        # Sem guardar essa referência, o Tk descarta a imagem da tela.
-        self._photo: ImageTk.PhotoImage | None = None
 
-        root.title("PokePython")
-        root.configure(bg=BACKGROUND, padx=15, pady=15)
-        root.resizable(False, False)
-        root.protocol("WM_DELETE_WINDOW", self._close)
-        ttk.Style(root).theme_use("clam")
+        self._title_font = ctk.CTkFont(size=30, weight="bold")
+        self._heading_font = ctk.CTkFont(size=17, weight="bold")
+        self._body_font = ctk.CTkFont(size=14)
+        self._bold_font = ctk.CTkFont(size=14, weight="bold")
+        self._small_font = ctk.CTkFont(size=12, weight="bold")
 
+        self._root.title("PokePython")
+        self._root.geometry("920x680")
+        self._root.minsize(920, 680)
+        self._root.protocol("WM_DELETE_WINDOW", self._close)
+        self._root.grid_columnconfigure(1, weight=1)
+        self._root.grid_rowconfigure(0, weight=1)
+
+        self._build_sidebar()
         self._build_details()
-        self._build_list()
         self._set_status("Carregando a Pokédex...")
         self._run_in_background(repository.list_entries, self._show_entries)
 
+    def run(self) -> None:
+        self._root.mainloop()
+
+    # --- Montagem da tela ---------------------------------------------
+
+    def _build_sidebar(self) -> None:
+        sidebar = ctk.CTkFrame(
+            self._root, width=260, corner_radius=0, fg_color=SIDEBAR_COLOR
+        )
+        sidebar.grid(row=0, column=0, sticky="ns")
+        sidebar.grid_rowconfigure(3, weight=1)
+
+        title = self._label(sidebar, "Pokédex", self._title_font)
+        title.grid(row=0, column=0, sticky="w", padx=20, pady=(20, 0))
+        self._subtitle = self._label(sidebar, "", color=MUTED_COLOR)
+        self._subtitle.grid(row=1, column=0, sticky="w", padx=20)
+
+        self._search = ctk.CTkEntry(
+            sidebar,
+            placeholder_text="Buscar nome ou número",
+            height=38,
+            corner_radius=10,
+            border_width=0,
+            fg_color=CARD_COLOR,
+            font=self._body_font,
+        )
+        self._search.grid(row=2, column=0, sticky="ew", padx=16, pady=16)
+        self._search.bind("<KeyRelease>", self._apply_filter)
+
+        self._list = ctk.CTkScrollableFrame(
+            sidebar, width=210, fg_color="transparent"
+        )
+        self._list.grid(row=3, column=0, sticky="nsew", padx=8)
+        self._list.grid_columnconfigure(0, weight=1)
+
+        self._status = self._label(
+            sidebar, "", color=MUTED_COLOR, wraplength=220, justify="left"
+        )
+        self._status.grid(row=4, column=0, sticky="w", padx=20, pady=12)
+
     def _build_details(self) -> None:
-        details = tk.Frame(self._root, bg=BACKGROUND)
-        details.grid(row=0, column=0, sticky="n")
-        details.grid_rowconfigure(2, minsize=IMAGE_SIZE)
+        details = ctk.CTkFrame(self._root, fg_color="transparent")
+        details.grid(row=0, column=1, sticky="nsew", padx=24, pady=24)
+        details.grid_columnconfigure(0, weight=3, uniform="cards")
+        details.grid_columnconfigure(1, weight=2, uniform="cards")
+        details.grid_rowconfigure(2, weight=1)  # cards ocupam o espaço livre
 
-        # Nome e número ficam num frame próprio para não alargar as colunas.
-        header = tk.Frame(details, bg=BACKGROUND)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew")
-        self._name = make_label(header, NAME_FONT)
+        # Cartão colorido com a cor do tipo principal do Pokémon.
+        self._hero = ctk.CTkFrame(
+            details, corner_radius=24, fg_color=CARD_COLOR
+        )
+        self._hero.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self._artwork = ctk.CTkLabel(
+            self._hero, text="", width=ARTWORK_SIZE, height=ARTWORK_SIZE
+        )
+        self._artwork.pack(pady=16)
+
+        header = ctk.CTkFrame(details, fg_color="transparent")
+        header.grid(
+            row=1, column=0, columnspan=2, sticky="ew", pady=(14, 14)
+        )
+        self._name = self._label(header, "", self._title_font)
         self._name.pack(side="left")
-        self._number = make_label(header, BOLD_FONT)
-        self._number.pack(side="right")
-
-        self._types = make_label(details, BOLD_FONT)
-        self._types.grid(row=1, column=0, columnspan=2, sticky="w")
-        self._image = tk.Label(details, bg=BACKGROUND)
-        self._image.grid(row=2, column=0, columnspan=2)
-
-        status_title = make_label(details, TITLE_FONT, text="Status")
-        status_title.grid(row=3, column=0, sticky="w")
-        abilities_title = make_label(details, TITLE_FONT, text="Habilidades")
-        abilities_title.grid(row=3, column=1, sticky="w")
-
-        # Tamanho fixo (em caracteres e linhas): a janela não muda de
-        # tamanho ao trocar de Pokémon.
-        self._stats = make_label(
-            details, TEXT_FONT, DETAIL_COLOR,
-            width=16, height=len(STAT_NAMES) + 1,
+        self._number = self._label(
+            header, "", self._heading_font, MUTED_COLOR
         )
-        self._stats.grid(row=4, column=0, sticky="nw")
-        self._abilities = make_label(
-            details, TEXT_FONT, DETAIL_COLOR, width=22
-        )
-        self._abilities.grid(row=4, column=1, sticky="nw")
+        self._number.pack(side="left", padx=12, pady=(6, 0))
+        self._badges = self._container(header)
+        self._badges.pack(side="right")
 
-        self._status = make_label(details, TEXT_FONT)
-        self._status.grid(
-            row=5, column=0, columnspan=2, sticky="w", pady=(10, 0)
+        stats_card = self._card(details)
+        stats_card.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
+        self._build_stats(stats_card)
+
+        abilities_card = self._card(details)
+        abilities_card.grid(row=2, column=1, sticky="nsew", padx=(8, 0))
+        abilities_title = self._label(
+            abilities_card, "Habilidades", self._heading_font
+        )
+        abilities_title.pack(anchor="w", padx=20, pady=(16, 8))
+        self._abilities = self._container(abilities_card)
+        self._abilities.pack(fill="x", padx=20)
+
+    def _build_stats(self, card: ctk.CTkFrame) -> None:
+        card.grid_columnconfigure(2, weight=1)
+        title = self._label(card, "Stats base", self._heading_font)
+        title.grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(16, 8)
         )
 
-    def _build_list(self) -> None:
-        frame = tk.Frame(self._root, bg=BACKGROUND)
-        frame.grid(row=0, column=1, sticky="ns", padx=(15, 0))
-        frame.grid_rowconfigure(0, weight=1)
+        # Cada linha: nome do stat, valor e barra (criadas uma vez só).
+        self._stat_widgets: list[tuple[ctk.CTkLabel, ctk.CTkProgressBar]] = []
+        for row, label in enumerate(STAT_NAMES.values(), start=1):
+            name = self._label(card, label, color=MUTED_COLOR)
+            name.grid(row=row, column=0, sticky="w", padx=(20, 8))
+            value = self._label(card, "", self._bold_font, width=36)
+            value.grid(row=row, column=1, sticky="e")
+            bar = ctk.CTkProgressBar(
+                card, height=8,
+                fg_color=HOVER_COLOR, progress_color=HOVER_COLOR,
+            )
+            bar.set(0)
+            bar.grid(row=row, column=2, sticky="ew", padx=(12, 20))
+            self._stat_widgets.append((value, bar))
 
-        self._list = tk.Listbox(
-            frame,
-            width=18,
-            font=TEXT_FONT,
-            bg=BACKGROUND,
-            fg=TEXT_COLOR,
-            selectbackground=SELECTION_COLOR,
-            selectforeground=BACKGROUND,
-            activestyle="none",
-            # Mantém a seleção quando o foco vai para outro widget.
-            exportselection=False,
+        total_row = len(STAT_NAMES) + 1
+        total = self._label(card, "Total", self._bold_font)
+        total.grid(row=total_row, column=0, sticky="w", padx=20, pady=(4, 16))
+        self._total = self._label(card, "", self._bold_font, width=36)
+        self._total.grid(row=total_row, column=1, sticky="e", pady=(4, 16))
+
+    def _label(
+        self,
+        parent: tk.Misc,
+        text: str,
+        font: ctk.CTkFont | None = None,
+        color: str = TEXT_COLOR,
+        **options,
+    ) -> ctk.CTkLabel:
+        return ctk.CTkLabel(
+            parent,
+            text=text,
+            font=font or self._body_font,
+            text_color=color,
+            anchor="w",
+            **options,
         )
-        scrollbar = ttk.Scrollbar(
-            frame, orient="vertical", command=self._list.yview
+
+    def _pill(
+        self, parent: tk.Misc, text: str, background: str
+    ) -> ctk.CTkLabel:
+        """Etiqueta arredondada, usada nos tipos e na habilidade oculta."""
+        return ctk.CTkLabel(
+            parent,
+            text=text,
+            font=self._small_font,
+            fg_color=background,
+            text_color=readable_text_color(background),
+            corner_radius=12,
+            height=26,
+            padx=10,
         )
-        self._list.configure(yscrollcommand=scrollbar.set)
-        self._list.grid(row=0, column=0, sticky="ns")
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self._list.bind("<<ListboxSelect>>", self._on_select)
+
+    @staticmethod
+    def _card(parent: tk.Misc) -> ctk.CTkFrame:
+        return ctk.CTkFrame(parent, corner_radius=18, fg_color=CARD_COLOR)
+
+    @staticmethod
+    def _container(parent: tk.Misc) -> ctk.CTkFrame:
+        """Frame invisível que só agrupa widgets.
+
+        Tamanho inicial zero: vazio, o padrão do CTkFrame (200x200)
+        empurraria o resto da tela.
+        """
+        return ctk.CTkFrame(
+            parent, width=0, height=0, fg_color="transparent"
+        )
+
+    # --- Lista e busca -------------------------------------------------
 
     def _show_entries(self, entries: list[PokedexEntry]) -> None:
-        self._entries = entries
-        labels = [f"{format_number(e.number)} {e.name}" for e in entries]
-        self._list.insert("end", *labels)
-        self._list.selection_set(0)
-        self._load(entries[0])
+        self._subtitle.configure(text=f"{len(entries)} Pokémon")
+        for row, entry in enumerate(entries):
+            button = ctk.CTkButton(
+                self._list,
+                text=f"{format_number(entry.number)}    {entry.name}",
+                anchor="w",
+                height=34,
+                corner_radius=8,
+                font=self._body_font,
+                fg_color="transparent",
+                hover_color=HOVER_COLOR,
+                text_color=TEXT_COLOR,
+                command=lambda entry=entry: self._select(entry),
+            )
+            button.grid(row=row, column=0, sticky="ew", pady=1)
+            self._buttons[entry.number] = button
+        self._select(entries[0])
 
-    def _on_select(self, _event: tk.Event) -> None:
-        selection = self._list.curselection()
-        if selection:
-            self._load(self._entries[selection[0]])
+    def _apply_filter(self, _event: tk.Event) -> None:
+        query = self._search.get().strip().lower()
+        for button in self._buttons.values():
+            if query in button.cget("text").lower():
+                button.grid()  # volta para a mesma posição de antes
+            else:
+                button.grid_remove()
+        # Volta ao topo; senão, com a lista rolada, os resultados ficam fora
+        # da vista. O CTkScrollableFrame não tem método público para isso.
+        self._list._parent_canvas.yview_moveto(0)
+
+    def _select(self, entry: PokedexEntry) -> None:
+        if self._selected is not None:
+            self._buttons[self._selected].configure(
+                fg_color="transparent", hover_color=HOVER_COLOR
+            )
+        self._selected = entry.number
+        self._buttons[entry.number].configure(
+            fg_color=ACCENT_COLOR, hover_color=ACCENT_COLOR
+        )
+        self._load(entry)
+
+    # --- Carregamento e exibição do Pokémon ----------------------------
 
     def _load(self, entry: PokedexEntry) -> None:
         if self._pending is not None:
@@ -202,19 +349,42 @@ class PokedexWindow:
         """Roda fora da thread da interface: baixa dados e prepara a imagem."""
         pokemon = self._repository.get_pokemon(number)
         image = Image.open(BytesIO(self._repository.get_artwork(pokemon)))
-        image.thumbnail((IMAGE_SIZE, IMAGE_SIZE))
+        image.thumbnail((ARTWORK_SIZE, ARTWORK_SIZE))
         return pokemon, image
 
     def _show_pokemon(self, result: tuple[Pokemon, Image.Image]) -> None:
         pokemon, image = result
-        self._photo = ImageTk.PhotoImage(image)
-        self._image.configure(image=self._photo)
+        color = type_styles(pokemon)[0].color
+
+        self._hero.configure(fg_color=color)
+        self._artwork.configure(image=ctk.CTkImage(image, size=image.size))
         self._name.configure(text=pokemon.name)
         self._number.configure(text=format_number(pokemon.number))
-        self._types.configure(text=format_types(pokemon))
-        self._stats.configure(text=format_stats(pokemon))
-        self._abilities.configure(text=format_abilities(pokemon))
+
+        clear(self._badges)
+        for style in type_styles(pokemon):
+            badge = self._pill(self._badges, style.label, style.color)
+            badge.pack(side="left", padx=(8, 0))
+
+        stats = zip(self._stat_widgets, stat_rows(pokemon))
+        for (value_label, bar), (_, value) in stats:
+            value_label.configure(text=str(value))
+            bar.configure(progress_color=color)
+            bar.set(value / MAX_BASE_STAT)
+        self._total.configure(text=str(pokemon.total))
+
+        clear(self._abilities)
+        for name, hidden in ability_rows(pokemon):
+            row = ctk.CTkFrame(self._abilities, fg_color="transparent")
+            row.pack(fill="x", pady=3)
+            self._label(row, name).pack(side="left")
+            if hidden:
+                self._pill(row, "oculta", HOVER_COLOR).pack(
+                    side="left", padx=8
+                )
         self._set_status("")
+
+    # --- Execução em segundo plano -------------------------------------
 
     def _run_in_background[T](
         self, task: Callable[[], T], on_success: Callable[[T], None]
@@ -247,8 +417,8 @@ class PokedexWindow:
         else:
             on_success(result)
 
-    def _set_status(self, text: str, color: str = TEXT_COLOR) -> None:
-        self._status.configure(text=text, fg=color)
+    def _set_status(self, text: str, color: str = MUTED_COLOR) -> None:
+        self._status.configure(text=text, text_color=color)
 
     def _close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)

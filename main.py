@@ -1,6 +1,5 @@
 """Ponto de entrada: monta as dependências e abre a Pokédex."""
 
-import tkinter as tk
 from pathlib import Path
 
 from pokedex.cache import FileCache
@@ -11,9 +10,7 @@ CACHE_DIR = Path(__file__).resolve().parent / ".cache"
 
 
 def main() -> None:
-    root = tk.Tk()
-    PokedexWindow(root, PokeApiRepository(FileCache(CACHE_DIR)))
-    root.mainloop()
+    PokedexWindow(PokeApiRepository(FileCache(CACHE_DIR))).run()
 
 
 if __name__ == "__main__":

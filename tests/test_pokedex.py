@@ -11,7 +11,15 @@ from pokedex.pokeapi import (
     format_name,
     parse_pokemon,
 )
-from pokedex.ui import format_abilities, format_stats, format_types
+from pokedex.ui import (
+    DARK_TEXT_COLOR,
+    TEXT_COLOR,
+    TYPES,
+    ability_rows,
+    readable_text_color,
+    stat_rows,
+    type_styles,
+)
 
 ARTWORK_URL = "https://exemplo.com/25.png"
 
@@ -73,18 +81,34 @@ class ParsePokemonTest(unittest.TestCase):
         self.assertEqual(pikachu.artwork_url, ARTWORK_URL)
 
 
-class FormatForDisplayTest(unittest.TestCase):
+class DisplayTest(unittest.TestCase):
     def test_shows_types_stats_and_abilities_in_portuguese(self) -> None:
         pikachu = parse_pokemon(PIKACHU_RESPONSE)
 
-        self.assertEqual(format_types(pikachu), "Elétrico")
         self.assertEqual(
-            format_stats(pikachu),
-            "HP: 35\nAtaque: 55\nDefesa: 40\nAtaque Esp.: 50\n"
-            "Defesa Esp.: 50\nVelocidade: 90\nTotal: 320",
+            [style.label for style in type_styles(pikachu)], ["Elétrico"]
         )
         self.assertEqual(
-            format_abilities(pikachu), "Static\nLightning Rod (oculta)"
+            stat_rows(pikachu),
+            [
+                ("HP", 35),
+                ("Ataque", 55),
+                ("Defesa", 40),
+                ("Ataque Esp.", 50),
+                ("Defesa Esp.", 50),
+                ("Velocidade", 90),
+            ],
+        )
+        self.assertEqual(
+            ability_rows(pikachu), [("Static", False), ("Lightning Rod", True)]
+        )
+
+    def test_text_contrasts_with_type_color(self) -> None:
+        self.assertEqual(
+            readable_text_color(TYPES["electric"].color), DARK_TEXT_COLOR
+        )
+        self.assertEqual(
+            readable_text_color(TYPES["dragon"].color), TEXT_COLOR
         )
 
 
