@@ -13,6 +13,9 @@ API_URL = "https://pokeapi.co/api/v2"
 POKEDEX_SIZE = 151
 REQUEST_TIMEOUT_SECONDS = 10
 USER_AGENT = "PokePython (projeto de estudo)"
+# Mude sempre que o modelo Pokemon ganhar ou perder campos: assim os
+# arquivos antigos do cache, sem os campos novos, deixam de ser lidos.
+POKEMON_CACHE_DIR = "pokemon-v2"
 
 # Nomes que não ficam certos só trocando "-" por espaço e capitalizando.
 SPECIAL_NAMES = {
@@ -57,6 +60,9 @@ def parse_pokemon(data: dict[str, Any]) -> Pokemon:
         abilities=abilities,
         hidden_ability=hidden_ability,
         artwork_url=artwork["front_default"],
+        # A API usa decímetros e hectogramas.
+        height=data["height"] / 10,
+        weight=data["weight"] / 10,
     )
 
 
@@ -82,7 +88,7 @@ class PokeApiRepository:
 
     def get_pokemon(self, number: int) -> Pokemon:
         data = self._cached_json(
-            f"pokemon/{number}.json",
+            f"{POKEMON_CACHE_DIR}/{number}.json",
             lambda: asdict(self._fetch_pokemon(number)),
         )
         return Pokemon(**data)

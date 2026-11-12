@@ -2,16 +2,17 @@
 
 > 🚧 **Projeto em desenvolvimento**: ainda está incompleto e muda com frequência.
 
-Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com **CustomTkinter**. Os dados vêm da [PokéAPI](https://pokeapi.co/): nome, número, tipos, imagem oficial, stats base e habilidades.
+Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com **CustomTkinter**. Os dados vêm da [PokéAPI](https://pokeapi.co/): nome, número, tipos, imagem oficial, stats base, habilidades, altura e peso.
 
 ## Funcionalidades
 
-- [x] Visual moderno em tema escuro, com o card na cor do tipo do Pokémon
-- [x] Lista com os 151 Pokémon da primeira geração e busca por nome ou número
-- [x] Nome, número e tipos (em português)
+- [x] Visual moderno em tema escuro, com o card em tom pastel da cor do tipo do Pokémon
+- [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
+- [x] Nome, número e tipos (em português) no topo do card
 - [x] Imagem oficial de cada Pokémon
 - [x] Stats base com barras: HP, Ataque, Defesa, Ataque Esp., Defesa Esp., Velocidade e Total
 - [x] Habilidades, incluindo a habilidade oculta
+- [x] Altura e peso
 - [x] Cache local: cada Pokémon é baixado uma vez só e depois funciona offline
 - [x] A janela não trava enquanto os dados são baixados
 

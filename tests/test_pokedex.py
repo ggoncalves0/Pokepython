@@ -16,6 +16,9 @@ from pokedex.ui import (
     TEXT_COLOR,
     TYPES,
     ability_rows,
+    format_measure,
+    mix_colors,
+    pastel,
     readable_text_color,
     stat_rows,
     type_styles,
@@ -27,6 +30,8 @@ ARTWORK_URL = "https://exemplo.com/25.png"
 PIKACHU_RESPONSE = {
     "id": 25,
     "name": "pikachu",
+    "height": 4,
+    "weight": 60,
     "types": [{"slot": 1, "type": {"name": "electric"}}],
     "stats": [
         {"base_stat": 35, "stat": {"name": "hp"}},
@@ -79,6 +84,8 @@ class ParsePokemonTest(unittest.TestCase):
         self.assertEqual(pikachu.abilities, ["Static"])
         self.assertEqual(pikachu.hidden_ability, "Lightning Rod")
         self.assertEqual(pikachu.artwork_url, ARTWORK_URL)
+        self.assertEqual(pikachu.height, 0.4)
+        self.assertEqual(pikachu.weight, 6.0)
 
 
 class DisplayTest(unittest.TestCase):
@@ -102,6 +109,20 @@ class DisplayTest(unittest.TestCase):
         self.assertEqual(
             ability_rows(pikachu), [("Static", False), ("Lightning Rod", True)]
         )
+
+    def test_formats_measures_with_comma(self) -> None:
+        self.assertEqual(format_measure(0.4, "m"), "0,4 m")
+        self.assertEqual(format_measure(460.0, "kg"), "460,0 kg")
+
+    def test_card_uses_pastel_of_type_color(self) -> None:
+        self.assertEqual(mix_colors("#000000", "#ffffff", 0.5), "#808080")
+        fire = pastel(TYPES["fire"].color)
+        self.assertEqual(fire, "#f7c6a2")
+        # Os tons pastel são claros: o texto sobre eles fica escuro.
+        for style in TYPES.values():
+            self.assertEqual(
+                readable_text_color(pastel(style.color)), DARK_TEXT_COLOR
+            )
 
     def test_text_contrasts_with_type_color(self) -> None:
         self.assertEqual(

@@ -18,6 +18,7 @@ class Pokemon:
 
     Tipos e stats usam os identificadores da PokéAPI ("electric",
     "special-attack"); a tradução para exibição fica na interface.
+    Altura em metros e peso em quilos.
     """
 
     number: int
@@ -27,6 +28,8 @@ class Pokemon:
     abilities: list[str]
     hidden_ability: str | None
     artwork_url: str
+    height: float
+    weight: float
 
     @property
     def total(self) -> int:
