@@ -15,10 +15,10 @@ from .icons import (
     TITLE_SYMBOLS,
     close_icon,
     cursor_icon,
+    list_symbol,
     moon_icon,
     search_icon,
     sun_icon,
-    text_symbol,
     title_symbol,
 )
 from .models import PokedexEntry, Pokemon, PokemonRepository
@@ -49,12 +49,16 @@ from .theme import (
     CLEAR_ICON_SIZE,
     CONTROL_PADDING,
     CONTROL_RADIUS,
+    CURSOR_SCALE,
+    CURSOR_X,
     ELEVATED_COLOR,
     ERROR_COLOR,
     FOCUS_BORDER_WIDTH,
     FONT_BADGE,
     FONT_BODY,
     FONT_HERO,
+    FONT_LIST_NAME,
+    FONT_LIST_NUMBER,
     FONT_TAG,
     FONT_TITLE,
     HERO_NUMBER_NUDGE,
@@ -62,6 +66,7 @@ from .theme import (
     ICON_SIZE,
     ITEM_GAP,
     LABEL_HEIGHT,
+    LIST_NUMBER_NUDGE,
     LIST_TEXT_HEIGHT,
     LIST_WIDTH,
     MIN_WINDOW_SIZE,
@@ -117,7 +122,7 @@ SETTINGS_PATH = PROJECT_DIR / "settings.json"  # tema escolhido
 
 
 class ListRow(NamedTuple):
-    """Linha clicável da lista: cursor e número, nome e, se houver, ♀/♂."""
+    """Linha clicável da lista: número, nome e, se houver, ♀/♂."""
 
     entry: PokedexEntry
     frame: ctk.CTkFrame
@@ -238,8 +243,6 @@ class PokedexWindow:
         self._images: dict[tuple, PixelImage] = {}  # cursor, ♀ e ♂ por cor
 
         self._create_fonts()
-        # Cursor transparente: guarda o lugar do cursor nas outras linhas.
-        self._no_cursor = self._cursor_image("#00000000")
 
         width, height = WINDOW_SIZE
         self._root.title("PokePython")
@@ -265,27 +268,38 @@ class PokedexWindow:
         self._root.mainloop()
 
     def _create_fonts(self) -> None:
-        """Press Start 2P nos títulos, números e valores; Pixelify no resto.
+        """Press Start 2P nos títulos, números e valores; Jersey 10 no resto.
 
         Se as fontes não carregarem, usa a fonte padrão do CustomTkinter,
-        com títulos em negrito.
+        com títulos e selos em negrito.
         """
         if self._pixel_fonts:
-            title, text, title_weight = TITLE_FAMILY, TEXT_FAMILY, "normal"
+            # As duas têm um peso só; um negrito falso borraria os pixels.
+            title, text, weight = TITLE_FAMILY, TEXT_FAMILY, "normal"
+            list_number_size = FONT_LIST_NUMBER
         else:
-            title, text, title_weight = None, None, "bold"
+            title, text, weight = None, None, "bold"
+            list_number_size = FONT_TAG  # 8 px não dá para ler na padrão
         self._hero_font = ctk.CTkFont(
-            family=title, size=FONT_HERO, weight=title_weight
+            family=title, size=FONT_HERO, weight=weight
         )
         self._title_font = ctk.CTkFont(
-            family=title, size=FONT_TITLE, weight=title_weight
+            family=title, size=FONT_TITLE, weight=weight
+        )
+        self._list_number_font = ctk.CTkFont(
+            family=title, size=list_number_size, weight=weight
         )
         self._body_font = ctk.CTkFont(family=text, size=FONT_BODY)
+        self._list_name_font = ctk.CTkFont(family=text, size=FONT_LIST_NAME)
         self._badge_font = ctk.CTkFont(
-            family=text, size=FONT_BADGE, weight="bold"
+            family=text, size=FONT_BADGE, weight=weight
         )
-        self._tag_font = ctk.CTkFont(
-            family=text, size=FONT_TAG, weight="bold"
+        self._tag_font = ctk.CTkFont(family=text, size=FONT_TAG, weight=weight)
+        # Fontes da Press Start 2P e o tamanho de cada uma em 100%.
+        self._grid_fonts = (
+            (self._hero_font, FONT_HERO),
+            (self._title_font, FONT_TITLE),
+            (self._list_number_font, list_number_size),
         )
         scaling = ctk.ScalingTracker.get_widget_scaling(self._root)
         self._snap_title_fonts(scaling)
@@ -294,9 +308,7 @@ class PokedexWindow:
 
     def _snap_title_fonts(self, widget_scaling: float, *_args) -> None:
         """Mantém a Press Start 2P em múltiplos de 8 px na tela."""
-        for font, size in (
-            (self._hero_font, FONT_HERO), (self._title_font, FONT_TITLE),
-        ):
+        for font, size in self._grid_fonts:
             font.configure(size=pixel_font_size(size, widget_scaling))
 
     def _split_name(self, name: str) -> tuple[str, str | None]:
@@ -307,10 +319,9 @@ class PokedexWindow:
         """▶ da linha selecionada, na cor do texto dela."""
         key = ("cursor", color)
         if key not in self._images:
-            # Mesma grade do número (Press Start 2P): 2x em 16 px.
-            self._images[key] = pixel_image(
-                cursor_icon, color, FONT_TITLE // PIXEL_GRID, snap=True
-            )
+            # Acompanha o nome da lista (Jersey 10), que segue a escala
+            # exata da tela.
+            self._images[key] = pixel_image(cursor_icon, color, CURSOR_SCALE)
         return self._images[key]
 
     def _symbol_image(
@@ -324,9 +335,9 @@ class PokedexWindow:
                     partial(title_symbol, symbol), color,
                     FONT_HERO // PIXEL_GRID, snap=True,
                 )
-            else:  # desenhado para a Pixelify Sans em 16 px
+            else:  # desenhado para os nomes da lista (FONT_LIST_NAME)
                 self._images[key] = pixel_image(
-                    partial(text_symbol, symbol), color
+                    partial(list_symbol, symbol), color
                 )
         return self._images[key]
 
@@ -397,6 +408,11 @@ class PokedexWindow:
             self._list, NO_RESULTS, color=MUTED_COLOR,
             wraplength=LIST_WIDTH, justify="left",
         )
+        # Cursor ▶ da linha selecionada. É um só: _paint_row o coloca na
+        # linha da vez, no recuo à esquerda do número.
+        self._cursor = ctk.CTkLabel(self._list, text="", width=0, height=0)
+        self._cursor.configure(cursor="hand2")
+        self._cursor.bind("<Button-1>", lambda _event: self._list.focus_set())
 
     def _build_theme_button(self, parent: ctk.CTkFrame) -> ctk.CTkButton:
         """Botão que alterna entre os temas claro e escuro.
@@ -762,23 +778,22 @@ class PokedexWindow:
         # Textos mais baixos que a linha, para não cobrirem o anel de foco
         # desenhado na borda dela.
         inset = (ROW_HEIGHT - LIST_TEXT_HEIGHT) // 2
-        # O cursor fica à esquerda do número, dentro do recuo da linha; nas
-        # outras linhas, o cursor transparente guarda o lugar. Assim o
-        # número fica alinhado com a lupa da busca.
-        cursor_width = self._no_cursor.cget("size")[0]
+        # Número pequeno e nome grande. O número começa alinhado com a
+        # lupa da busca; o cursor ▶ fica no recuo antes dele.
         number_text = format_number(entry.number)
         number = self._label(
-            frame, number_text, self._title_font,
-            width=cursor_width + NUMBER_WIDTH, height=LIST_TEXT_HEIGHT,
-            image=self._no_cursor, compound="left",
+            frame, number_text, self._list_number_font,
+            width=NUMBER_WIDTH, height=LIST_TEXT_HEIGHT,
         )
         number.pack(
             side="left",
-            padx=(CONTROL_PADDING - cursor_width, ITEM_GAP),
-            pady=(inset + NUMBER_NUDGE, inset - NUMBER_NUDGE),
+            padx=(CONTROL_PADDING, ITEM_GAP),
+            pady=(inset + LIST_NUMBER_NUDGE, inset - LIST_NUMBER_NUDGE),
         )
         name_text, symbol_char = self._split_name(entry.name)
-        name = self._label(frame, name_text, height=LIST_TEXT_HEIGHT)
+        name = self._label(
+            frame, name_text, self._list_name_font, height=LIST_TEXT_HEIGHT
+        )
         name.pack(side="left", pady=inset)
         widgets = [frame, number, name]
         symbol = None
@@ -833,26 +848,39 @@ class PokedexWindow:
         row = self._rows[number]
         border = 0
         background, text_color = "transparent", TEXT_COLOR
-        cursor = self._no_cursor
         if number == self._selected:
             background = self._selected_background
             text_color = self._selected_text
-            cursor = self._cursor_image(text_color)
             if self._list_focused:
                 border = FOCUS_BORDER_WIDTH
+            self._place_cursor(row, background, text_color)
         elif number == self._hovered:
             background = ELEVATED_COLOR
         row.frame.configure(
             fg_color=background, border_width=border,
             border_color=self._accent,
         )
-        row.number.configure(text_color=text_color, image=cursor)
+        row.number.configure(text_color=text_color)
         row.name.configure(text_color=text_color)
         if row.symbol is not None:
             symbol = split_symbol(row.entry.name)[1]
             row.symbol.configure(
                 image=self._symbol_image(symbol, text_color, False)
             )
+
+    def _place_cursor(
+        self,
+        row: ListRow,
+        background: str | ThemeColor,
+        color: str | ThemeColor,
+    ) -> None:
+        """Põe o cursor ▶ na linha, centralizado na altura dela."""
+        self._cursor.configure(
+            fg_color=background, image=self._cursor_image(color)
+        )
+        # Com in_, o cursor acompanha a linha: some quando a busca a esconde.
+        self._cursor.place(in_=row.frame, x=CURSOR_X, rely=0.5, anchor="w")
+        self._cursor.lift()  # na frente da linha, criada depois dele
 
     def _set_list_focus(self, focused: bool) -> None:
         self._list_focused = focused

@@ -90,10 +90,10 @@ MOON_ICON = [
 # - Press Start 2P: 8 de subida e 3 de descida; maiúsculas nas 7 primeiras
 #   linhas, traço vertical de 2 px.
 TITLE_LINE = 11
-# - Pixelify Sans 16 px: 15 de subida e 5 de descida; maiúsculas nas
-#   linhas 5 a 14.
-TEXT_LINE = 20
-TEXT_CAP_TOP = 5
+# - Jersey 10 em 24 px (nomes da lista): 19 de subida e 6 de descida;
+#   maiúsculas nas linhas 6 a 18, traço de uns 2 px.
+LIST_LINE = 25
+LIST_CAP_TOP = 6
 
 # Cursor da linha selecionada na lista, no estilo da Press Start 2P.
 CURSOR = [
@@ -105,11 +105,10 @@ CURSOR = [
     "XX..",
     "X...",
 ]
-CURSOR_GAP = 2  # colunas vazias entre o cursor e o número
 
 # ♀ e ♂ não existem nas duas fontes; estes desenhos ficam no lugar deles.
 # Uma versão para o nome no card principal (Press Start 2P) e outra para a
-# lista (Pixelify Sans).
+# lista (Jersey 10).
 TITLE_SYMBOLS = {
     "♀": [
         "..XXXX.",
@@ -130,30 +129,36 @@ TITLE_SYMBOLS = {
         ".XXXX..",
     ],
 }
-TEXT_SYMBOLS = {
+LIST_SYMBOLS = {
     "♀": [
         "..XXXX..",
-        ".XX..XX.",
+        ".XXXXXX.",
+        "XXX..XXX",
         "XX....XX",
         "XX....XX",
-        ".XX..XX.",
+        "XXX..XXX",
+        ".XXXXXX.",
         "..XXXX..",
         "...XX...",
+        ".XXXXXX.",
         ".XXXXXX.",
         "...XX...",
         "...XX...",
     ],
     "♂": [
-        "....XXXX",
-        "......XX",
-        ".....X.X",
-        "..XXXX.X",
-        ".XX..XX.",
-        "XX....XX",
-        "XX....XX",
-        "XX....XX",
-        ".XX..XX.",
-        "..XXXX..",
+        ".......XXXX",
+        ".......XXXX",
+        ".........XX",
+        "........XXX",
+        ".......XX..",
+        "..XXXXXX...",
+        ".XXXXXX....",
+        "XXX..XXX...",
+        "XX....XX...",
+        "XX....XX...",
+        "XXX..XXX...",
+        ".XXXXXX....",
+        "..XXXX.....",
     ],
 }
 
@@ -195,10 +200,8 @@ def in_line(
 
 
 def cursor_icon(color: str) -> Image.Image:
-    """▶ na linha da Press Start 2P, com o vão até o número."""
-    return pixel_art(
-        in_line(CURSOR, TITLE_LINE, right=CURSOR_GAP), {"X": color}
-    )
+    """▶ da linha selecionada."""
+    return pixel_art(CURSOR, {"X": color})
 
 
 def title_symbol(symbol: str, color: str) -> Image.Image:
@@ -208,10 +211,10 @@ def title_symbol(symbol: str, color: str) -> Image.Image:
     )
 
 
-def text_symbol(symbol: str, color: str) -> Image.Image:
-    """♀ ou ♂ na linha da Pixelify Sans 16 px."""
+def list_symbol(symbol: str, color: str) -> Image.Image:
+    """♀ ou ♂ na linha dos nomes da lista (Jersey 10 em 24 px)."""
     rows = in_line(
-        TEXT_SYMBOLS[symbol], TEXT_LINE, top=TEXT_CAP_TOP, left=1, right=1
+        LIST_SYMBOLS[symbol], LIST_LINE, top=LIST_CAP_TOP, left=1, right=1
     )
     return pixel_art(rows, {"X": color})
 

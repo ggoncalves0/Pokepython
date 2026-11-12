@@ -13,13 +13,12 @@ from pokedex.pokeapi import (
 )
 from pokedex.icons import (
     CURSOR,
-    CURSOR_GAP,
-    TEXT_CAP_TOP,
-    TEXT_LINE,
+    LIST_CAP_TOP,
+    LIST_LINE,
     TITLE_LINE,
     cursor_icon,
     in_line,
-    text_symbol,
+    list_symbol,
     title_symbol,
 )
 from pokedex.pixel import FONT_FILES, FONTS_DIR, pixel_font_size, pixel_scale
@@ -304,16 +303,17 @@ class PixelArtTest(unittest.TestCase):
     def test_drawings_fill_a_whole_text_line(self) -> None:
         # Com a altura da linha, o Tk alinha imagem e letras sozinho.
         self.assertEqual(
-            cursor_icon("#000000").size,
-            (len(CURSOR[0]) + CURSOR_GAP, TITLE_LINE),
+            cursor_icon("#000000").size, (len(CURSOR[0]), len(CURSOR))
         )
         for symbol in ("♀", "♂"):
             with self.subTest(simbolo=symbol):
-                self.assertEqual(title_symbol(symbol, "#000000").size, (8, 11))
-                image = text_symbol(symbol, "#000000")
-                self.assertEqual(image.height, TEXT_LINE)
+                self.assertEqual(
+                    title_symbol(symbol, "#000000").size, (8, TITLE_LINE)
+                )
+                image = list_symbol(symbol, "#000000")
+                self.assertEqual(image.height, LIST_LINE)
                 # O desenho começa na altura das maiúsculas.
-                self.assertEqual(image.getbbox()[1], TEXT_CAP_TOP)
+                self.assertEqual(image.getbbox()[1], LIST_CAP_TOP)
 
 
 class SettingsTest(unittest.TestCase):

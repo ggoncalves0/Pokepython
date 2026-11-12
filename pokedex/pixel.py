@@ -16,11 +16,10 @@ from PIL import Image, ImageTk
 FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 FONT_FILES = (
     "PressStart2P-Regular.ttf",
-    "PixelifySans-Regular.ttf",
-    "PixelifySans-Bold.ttf",
+    "Jersey10-Regular.ttf",
 )
 TITLE_FAMILY = "Press Start 2P"  # títulos e números
-TEXT_FAMILY = "Pixelify Sans"  # o resto
+TEXT_FAMILY = "Jersey 10"  # o resto; só tem um peso, que já parece negrito
 PIXEL_GRID = 8  # grade da Press Start 2P, em px
 
 
@@ -85,7 +84,7 @@ class PixelImage(ctk.CTkImage):
     O CTkImage comum amplia com suavização, o que borra os pixels quando a
     escala do Windows não é 100%. Este amplia com NEAREST. Com snap=True,
     amplia sempre por um fator inteiro (2x, 3x...), acompanhando a Press
-    Start 2P; sem ele, segue a escala exata, como a Pixelify Sans.
+    Start 2P; sem ele, segue a escala exata, como a Jersey 10.
     """
 
     def __init__(

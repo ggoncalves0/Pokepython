@@ -42,7 +42,7 @@ Por usar os valores atuais, alguns Pokémon aparecem diferentes dos jogos antigo
 - [CustomTkinter](https://customtkinter.tomschimansky.com/): interface gráfica moderna, feita sobre o Tkinter
 - [Pillow](https://pypi.org/project/pillow/): carregamento e redimensionamento das imagens
 - [PokéAPI](https://pokeapi.co/): dados e imagens dos Pokémon
-- [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) e [Pixelify Sans](https://fonts.google.com/specimen/Pixelify+Sans): fontes pixeladas, com licença [SIL Open Font License](assets/fonts/OFL.txt)
+- [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) e [Jersey 10](https://fonts.google.com/specimen/Jersey+10): fontes pixeladas, com licença [SIL Open Font License](assets/fonts/OFL.txt)
 
 ## Como executar
 
@@ -96,7 +96,7 @@ Pokepython/
 │   └── ui.py          # janela (CustomTkinter)
 ├── assets/
 │   ├── icon.ico       # ícone da janela, em pixel art
-│   └── fonts/         # Press Start 2P e Pixelify Sans, com a licença (OFL.txt)
+│   └── fonts/         # Press Start 2P e Jersey 10, com a licença (OFL.txt)
 ├── scripts/
 │   ├── check_contrast.py  # tabela de contraste das cores, nos dois temas
 │   └── make_icon.py       # gera o assets/icon.ico a partir do desenho em icons.py
@@ -107,4 +107,4 @@ Pokepython/
 
 ---
 
-Dados e imagens: [PokéAPI](https://pokeapi.co/). Fontes: Press Start 2P (CodeMan38) e Pixelify Sans (Stefie Justprince), sob a SIL Open Font License 1.1. Pokémon e seus nomes são marcas registradas da Nintendo / Game Freak / The Pokémon Company. Este é um projeto de estudo, sem fins comerciais.
+Dados e imagens: [PokéAPI](https://pokeapi.co/). Fontes: Press Start 2P (CodeMan38) e Jersey 10 (Sarah Cadigan-Fried), sob a SIL Open Font License 1.1. Pokémon e seus nomes são marcas registradas da Nintendo / Game Freak / The Pokémon Company. Este é um projeto de estudo, sem fins comerciais.
