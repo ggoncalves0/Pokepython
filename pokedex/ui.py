@@ -412,7 +412,9 @@ class PokedexWindow:
         )
         self._no_results = self._label(
             self._list, NO_RESULTS, color=MUTED_COLOR,
-            wraplength=LIST_WIDTH, justify="left",
+            # Desconta o recuo à esquerda (alinhado com a lupa); senão a
+            # frase passa da borda da lista e é cortada.
+            wraplength=LIST_WIDTH - CONTROL_PADDING, justify="left",
         )
         # Cursor ▶ da linha selecionada. É um só: _paint_row o coloca na
         # linha da vez, no recuo à esquerda do número.
