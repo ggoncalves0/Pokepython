@@ -4,6 +4,7 @@ import tkinter as tk
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from io import BytesIO
+from pathlib import Path
 from typing import NamedTuple
 
 import customtkinter as ctk
@@ -40,6 +41,7 @@ from .theme import (
     ICON_SIZE,
     ITEM_GAP,
     LIST_WIDTH,
+    MIN_WINDOW_SIZE,
     MUTED_COLOR,
     NUMBER_WIDTH,
     PILL_HEIGHT,
@@ -49,8 +51,12 @@ from .theme import (
     ROW_HEIGHT,
     ROW_INSET,
     ROW_RADIUS,
+    SCROLLBAR_COLOR,
+    SCROLLBAR_HOVER_COLOR,
+    SCROLLBAR_WIDTH,
     SEARCH_HEIGHT,
     SIDEBAR_COLOR,
+    SIDEBAR_WIDTH,
     STAT_VALUE_WIDTH,
     TEXT_COLOR,
     TITLE_GAP,
@@ -75,6 +81,11 @@ CHECK_INTERVAL_MS = 50
 STATUS_DELAY_MS = 300  # só avisa que está carregando se demorar
 RESIZE_DELAY_MS = 60  # espera a janela parar de mudar antes de redesenhar
 CONNECTION_ERROR = "Sem conexão com a PokéAPI."
+NO_RESULTS = "Nenhum Pokémon encontrado"
+# Um Pokémon tem no máximo 2 habilidades normais e 1 oculta. O card
+# reserva sempre as 3 linhas, para não mudar de altura entre Pokémon.
+MAX_ABILITIES = 3
+ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
 
 
 class ListRow(NamedTuple):
@@ -168,7 +179,8 @@ class PokedexWindow:
         width, height = WINDOW_SIZE
         self._root.title("PokePython")
         self._root.geometry(f"{width}x{height}")
-        self._root.minsize(width, height)
+        self._root.minsize(*MIN_WINDOW_SIZE)
+        self._set_window_icon()
         self._root.protocol("WM_DELETE_WINDOW", self._close)
         self._root.grid_columnconfigure(0, weight=1)
         self._root.grid_rowconfigure(0, weight=1)
@@ -191,9 +203,11 @@ class PokedexWindow:
 
     def _build_sidebar(self) -> None:
         sidebar = ctk.CTkFrame(
-            self._root, corner_radius=0, fg_color=SIDEBAR_COLOR
+            self._root, width=SIDEBAR_WIDTH, corner_radius=0,
+            fg_color=SIDEBAR_COLOR,
         )
         sidebar.grid(row=0, column=1, sticky="ns")
+        sidebar.grid_propagate(False)  # largura fixa, veja SIDEBAR_WIDTH
         sidebar.grid_rowconfigure(3, weight=1)
         sidebar.grid_columnconfigure(0, weight=1)
 
@@ -222,18 +236,31 @@ class PokedexWindow:
         self._list = ctk.CTkScrollableFrame(
             sidebar, width=LIST_WIDTH, corner_radius=0,
             fg_color="transparent",
+            scrollbar_button_color=SCROLLBAR_COLOR,
+            scrollbar_button_hover_color=SCROLLBAR_HOVER_COLOR,
         )
         self._list.grid(
             row=3, column=0, sticky="nsew",
             padx=WINDOW_MARGIN, pady=(0, WINDOW_MARGIN),
         )
         self._list.grid_columnconfigure(0, weight=1)
+        self._list._scrollbar.configure(width=SCROLLBAR_WIDTH)
         # A lista recebe o foco com um clique numa linha ou com Tab. Com
         # foco, a linha selecionada ganha um anel na cor do tipo.
         tk.Frame.configure(self._list, takefocus=True)
         self._list.bind("<FocusIn>", lambda _event: self._set_list_focus(True))
         self._list.bind(
             "<FocusOut>", lambda _event: self._set_list_focus(False)
+        )
+        # A barra de rolagem some quando a lista cabe inteira. Confere de
+        # novo quando muda o conteúdo (busca) ou a altura (janela).
+        self._list.bind("<Configure>", self._update_scrollbar, add="+")
+        self._list._parent_canvas.bind(
+            "<Configure>", self._update_scrollbar, add="+"
+        )
+        self._no_results = self._label(
+            self._list, NO_RESULTS, color=MUTED_COLOR,
+            wraplength=LIST_WIDTH, justify="left",
         )
 
     def _build_search(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
@@ -379,14 +406,24 @@ class PokedexWindow:
         self._card_title(abilities_card, "Habilidades").pack(
             anchor="w", padx=CARD_PADDING, pady=(CARD_PADDING, TITLE_GAP)
         )
-        self._abilities = self._container(abilities_card)
-        self._abilities.pack(
-            fill="x", padx=CARD_PADDING, pady=(0, CARD_PADDING)
-        )
+        abilities = self._container(abilities_card)
+        abilities.pack(fill="x", padx=CARD_PADDING, pady=(0, CARD_PADDING))
+        # Linhas fixas: com menos habilidades, as de baixo ficam vazias e a
+        # sobra aparece no fim do card, sem mexer no resto da tela.
+        self._ability_rows: list[tuple[ctk.CTkLabel, ctk.CTkLabel]] = []
+        for _ in range(MAX_ABILITIES):
+            row = self._container(abilities)
+            row.pack(fill="x")
+            name = self._label(row, "")
+            name.pack(side="left")
+            # Rótulo simples, sem fundo: um selo arredondado parecia um
+            # botão. Só aparece na habilidade oculta.
+            tag = self._label(row, "OCULTA", self._tag_font, MUTED_COLOR)
+            self._ability_rows.append((name, tag))
 
-        # Se o card de status for mais alto, Medidas cresce até a mesma base.
+        # Medidas tem sempre o mesmo conteúdo, logo a mesma altura.
         measures_card = self._card(right_column)
-        measures_card.pack(fill="both", expand=True, pady=(CARD_GAP, 0))
+        measures_card.pack(fill="x", pady=(CARD_GAP, 0))
         self._build_measures(measures_card)
 
     def _build_measures(self, card: ctk.CTkFrame) -> None:
@@ -409,7 +446,6 @@ class PokedexWindow:
                 row=row, column=1, sticky="w",
                 padx=(0, CARD_PADDING), pady=(0, bottom),
             )
-            card.grid_rowconfigure(row, weight=1)  # divide a altura extra
             self._measures.append(value)
 
     def _build_stats(self, card: ctk.CTkFrame) -> None:
@@ -438,9 +474,6 @@ class PokedexWindow:
             bar.grid(
                 row=row, column=2, sticky="ew", padx=(WIDE_GAP, CARD_PADDING)
             )
-            # Se a coluna da direita for mais alta, as linhas se espaçam
-            # em vez de sobrar um vão embaixo do Total.
-            card.grid_rowconfigure(row, weight=1)
             self._stat_widgets.append((value, bar))
 
         divider_row = len(STAT_NAMES) + 1
@@ -523,15 +556,38 @@ class PokedexWindow:
     # --- Lista e busca -------------------------------------------------
 
     def _show_entries(self, entries: list[PokedexEntry]) -> None:
-        self._count_text = f"{len(entries)} Pokémon"
-        self._show_status(self._count_text)
         for position, entry in enumerate(entries):
             row = self._make_row(entry)
             row.frame.grid(
                 row=position, column=0, sticky="ew", pady=(0, ROW_GAP)
             )
             self._rows[entry.number] = row
+        # Aviso de busca sem resultado, logo abaixo das linhas (que somem).
+        self._no_results.grid(
+            row=len(entries), column=0, sticky="w", padx=CONTROL_PADDING
+        )
+        self._no_results.grid_remove()
+        self._show_count(len(entries))
         self._select(entries[0])
+
+    def _show_count(self, shown: int) -> None:
+        """"151 Pokémon" sem busca; "2 de 151" durante a busca."""
+        total = len(self._rows)
+        self._count_text = (
+            f"{shown} de {total}" if self._query else f"{total} Pokémon"
+        )
+        self._show_status(self._count_text)
+
+    def _update_scrollbar(self, _event: tk.Event | None = None) -> None:
+        """Mostra a barra de rolagem só quando a lista não cabe inteira."""
+        # O CTkScrollableFrame não tem acesso público à barra.
+        scrollbar = self._list._scrollbar
+        visible_height = self._list._parent_canvas.winfo_height()
+        fits = self._list.winfo_reqheight() <= visible_height
+        if fits and scrollbar.winfo_manager():
+            scrollbar.grid_remove()
+        elif not fits and not scrollbar.winfo_manager():
+            scrollbar.grid()
 
     def _make_row(self, entry: PokedexEntry) -> ListRow:
         # O CTkButton só aceita uma fonte para o texto todo; com dois
@@ -680,11 +736,18 @@ class PokedexWindow:
         if query == self._query:
             return  # teclas como as setas não mudam o texto
         self._query = query
+        shown = 0
         for row in self._rows.values():
             if query in row.search_text:
                 row.frame.grid()  # volta para a mesma posição de antes
+                shown += 1
             else:
                 row.frame.grid_remove()
+        if shown:
+            self._no_results.grid_remove()
+        else:
+            self._no_results.grid()
+        self._show_count(shown)
         # Volta ao topo; senão, com a lista rolada, os resultados ficam fora
         # da vista. O CTkScrollableFrame não tem método público para isso.
         self._list._parent_canvas.yview_moveto(0)
@@ -778,17 +841,28 @@ class PokedexWindow:
             bar.set(bar_fraction(value))
         self._total.configure(text=str(pokemon.total))
 
-        clear(self._abilities)
-        for name, hidden in ability_rows(pokemon):
-            row = ctk.CTkFrame(self._abilities, fg_color="transparent")
-            row.pack(fill="x")
-            self._label(row, name).pack(side="left")
+        abilities = ability_rows(pokemon)
+        for index, (name_label, tag) in enumerate(self._ability_rows):
+            name, hidden = (
+                abilities[index] if index < len(abilities) else ("", False)
+            )
+            name_label.configure(text=name)
             if hidden:
-                # Rótulo simples, sem fundo: um selo arredondado parecia
-                # um botão.
-                tag = self._label(row, "OCULTA", self._tag_font, MUTED_COLOR)
                 tag.pack(side="left", padx=ITEM_GAP)
+            else:
+                tag.pack_forget()
         self._show_status(self._count_text)
+
+    def _set_window_icon(self) -> None:
+        """Troca o ícone padrão do CustomTkinter pelo da Pokédex.
+
+        Precisa vir logo depois de criar a janela: o CustomTkinter só põe
+        o ícone dele se ninguém tiver chamado iconbitmap antes.
+        """
+        try:
+            self._root.iconbitmap(str(ICON_PATH))
+        except tk.TclError:
+            pass  # fora do Windows o .ico pode não ser aceito
 
     def _schedule_artwork_resize(self, _event: tk.Event) -> None:
         """Redesenha a arte quando o hero muda de tamanho.

@@ -88,8 +88,11 @@ Pokepython/
 │   ├── theme.py       # cores, espaçamentos, fontes e regras de cor por tipo
 │   ├── icons.py       # ícones desenhados com o Pillow (lupa e "×")
 │   └── ui.py          # janela (CustomTkinter)
+├── assets/
+│   └── icon.ico       # ícone da janela, em pixel art
 ├── scripts/
-│   └── check_contrast.py  # tabela de contraste das cores de cada tipo
+│   ├── check_contrast.py  # tabela de contraste das cores de cada tipo
+│   └── make_icon.py       # gera o assets/icon.ico a partir do desenho em icons.py
 ├── tests/             # testes automatizados
 ├── requirements.txt   # dependências do projeto
 └── README.md

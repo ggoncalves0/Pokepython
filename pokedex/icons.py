@@ -7,10 +7,58 @@ CTkImage, o que deixa as bordas suaves em qualquer escala de tela.
 
 import math
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageColor, ImageDraw
 
 SUPERSAMPLE = 4
 STROKE = 0.12  # espessura do traço, em fração do tamanho do ícone
+
+# Ícone da janela: um aparelho portátil com lente azul, luzes e uma tela
+# verde com um rostinho. Cada caractere é um pixel; "." é transparente.
+APP_ICON = [
+    "................",
+    "..KKKKKKKKKKKK..",
+    ".KRRRRRRRRRRRRK.",
+    ".KRRKKKRRRRRRRK.",
+    ".KRKWbBKRYRGRRK.",
+    ".KRKBBBKRRRRRRK.",
+    ".KRRKKKRRRRRRRK.",
+    ".KRRRRRRRRRRRRK.",
+    ".KRKKKKKKKKKKRK.",
+    ".KRKGGGGGGGGKRK.",
+    ".KRKGGgGGgGGKRK.",
+    ".KRKGGGGGGGGKRK.",
+    ".KRKGgGGGGgGKRK.",
+    ".KRKGGggggGGKRK.",
+    ".KRKKKKKKKKKKRK.",
+    "..KKKKKKKKKKKK..",
+]
+APP_ICON_PALETTE = {
+    "K": "#1c1d26",  # contorno
+    "R": "#d8433a",  # corpo
+    "W": "#ffffff",  # brilho da lente
+    "b": "#b9cdf8",  # lente, parte clara
+    "B": "#6390f0",  # lente
+    "Y": "#f7d02c",  # luz amarela
+    "G": "#c3e6ae",  # tela
+    "g": "#4e7a3a",  # rostinho na tela
+}
+
+
+def pixel_art(
+    rows: list[str], palette: dict[str, str], scale: int = 1
+) -> Image.Image:
+    """Monta uma imagem a partir de um desenho em texto.
+
+    Cada caractere é um pixel com a cor de `palette`; "." é transparente.
+    A ampliação usa NEAREST, que mantém os pixels nítidos.
+    """
+    width, height = len(rows[0]), len(rows)
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    for y, row in enumerate(rows):
+        for x, char in enumerate(row):
+            if char != ".":
+                image.putpixel((x, y), ImageColor.getrgb(palette[char]))
+    return image.resize((width * scale, height * scale), Image.NEAREST)
 
 
 def _canvas(size: int) -> tuple[Image.Image, ImageDraw.ImageDraw, int, int]:

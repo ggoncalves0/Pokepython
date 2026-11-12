@@ -21,6 +21,8 @@ MUTED_COLOR = "#9a9cb0"  # textos secundários
 DARK_TEXT_COLOR = "#1c1c1c"  # texto sobre fundos claros (pastel)
 WHITE = "#ffffff"
 ERROR_COLOR = "#ff6b6b"
+SCROLLBAR_COLOR = "#6b6e85"
+SCROLLBAR_HOVER_COLOR = "#9a9cb0"
 
 # --- Espaçamentos ---------------------------------------------------------
 
@@ -44,8 +46,16 @@ PILL_RADIUS = 12  # selos de tipo
 
 # --- Tamanhos -------------------------------------------------------------
 
-WINDOW_SIZE = (920, 680)  # tamanho inicial e também o mínimo
+# A linha de baixo tem altura fixa (pior caso: 3 habilidades); com 720 px
+# de altura, o hero mantém a arte no tamanho de antes.
+WINDOW_SIZE = (920, 720)  # tamanho inicial
+MIN_WINDOW_SIZE = (920, 680)
 LIST_WIDTH = 200  # área das linhas da lista, sem a barra de rolagem
+SCROLLBAR_WIDTH = 16
+# Largura fixa: se dependesse do conteúdo, a lateral encolheria ao esconder
+# a barra de rolagem e a tela toda se deslocaria. O +1 é o recuo que o
+# CTkScrollableFrame põe à direita da barra.
+SIDEBAR_WIDTH = 2 * WINDOW_MARGIN + LIST_WIDTH + SCROLLBAR_WIDTH + 1
 SEARCH_HEIGHT = 38
 ROW_HEIGHT = 34  # linhas da lista
 ROW_GAP = 2  # entre as linhas da lista
