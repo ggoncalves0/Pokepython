@@ -9,60 +9,83 @@ from typing import NamedTuple
 import customtkinter as ctk
 from PIL import Image
 
+from .icons import close_icon, search_icon
 from .models import PokedexEntry, Pokemon, PokemonRepository
+from .theme import (
+    APP_BACKGROUND,
+    ARTWORK_MAX_SIZE,
+    ARTWORK_MIN_SIZE,
+    BAR_HEIGHT,
+    BORDER_COLOR,
+    BORDER_WIDTH,
+    CARD_COLOR,
+    CARD_GAP,
+    CARD_PADDING,
+    CARD_RADIUS,
+    CLEAR_BUTTON_SIZE,
+    CLEAR_ICON_SIZE,
+    CONTROL_PADDING,
+    CONTROL_RADIUS,
+    ELEVATED_COLOR,
+    ERROR_COLOR,
+    FOCUS_BORDER_WIDTH,
+    FONT_BADGE,
+    FONT_BODY,
+    FONT_HEADING,
+    FONT_HERO,
+    FONT_SIDEBAR_TITLE,
+    FONT_TAG,
+    HERO_NUMBER_NUDGE,
+    HERO_RADIUS,
+    ICON_SIZE,
+    ITEM_GAP,
+    LIST_WIDTH,
+    MUTED_COLOR,
+    NUMBER_WIDTH,
+    PILL_HEIGHT,
+    PILL_PADDING,
+    PILL_RADIUS,
+    ROW_GAP,
+    ROW_HEIGHT,
+    ROW_INSET,
+    ROW_RADIUS,
+    SEARCH_HEIGHT,
+    SIDEBAR_COLOR,
+    STAT_VALUE_WIDTH,
+    TEXT_COLOR,
+    TITLE_GAP,
+    TYPES,
+    WIDE_GAP,
+    WINDOW_MARGIN,
+    WINDOW_SIZE,
+    TypeStyle,
+    badge_text_color,
+    bar_color,
+    hero_number_color,
+    pastel,
+    readable_text_color,
+)
 
-APP_BACKGROUND = "#16171d"
-SIDEBAR_COLOR = "#1f2029"
-CARD_COLOR = "#262834"
-HOVER_COLOR = "#323545"
-TEXT_COLOR = "#f1f1f4"
-MUTED_COLOR = "#9a9cb0"
-DARK_TEXT_COLOR = "#1c1c1c"
-WHITE = "#ffffff"
-ERROR_COLOR = "#ff6b6b"
-
-PASTEL_AMOUNT = 0.55  # quanto de branco entra na cor do tipo para o card
-MUTED_AMOUNT = 0.35  # quanto o número no card se mistura com o fundo
-ARTWORK_SIZE = 230
-MAX_BASE_STAT = 255  # maior valor que um stat base pode ter nos jogos
+# Valor que enche a barra. Quase todo stat base fica abaixo disso; os
+# poucos acima (como o HP 250 do Chansey) enchem a barra, e o número ao
+# lado mostra o valor exato. Com o máximo real (255), 45 e 65 pareciam
+# quase iguais.
+STAT_BAR_MAX = 180
 CHECK_INTERVAL_MS = 50
+STATUS_DELAY_MS = 300  # só avisa que está carregando se demorar
+RESIZE_DELAY_MS = 60  # espera a janela parar de mudar antes de redesenhar
 CONNECTION_ERROR = "Sem conexão com a PokéAPI."
-
-
-class TypeStyle(NamedTuple):
-    label: str
-    color: str
 
 
 class ListRow(NamedTuple):
     """Linha clicável da lista: número em negrito e nome."""
 
+    entry: PokedexEntry
     frame: ctk.CTkFrame
     number: ctk.CTkLabel
     name: ctk.CTkLabel
     search_text: str
 
-
-TYPES = {
-    "normal": TypeStyle("Normal", "#A8A77A"),
-    "fire": TypeStyle("Fogo", "#EE8130"),
-    "water": TypeStyle("Água", "#6390F0"),
-    "electric": TypeStyle("Elétrico", "#F7D02C"),
-    "grass": TypeStyle("Planta", "#7AC74C"),
-    "ice": TypeStyle("Gelo", "#96D9D6"),
-    "fighting": TypeStyle("Lutador", "#C22E28"),
-    "poison": TypeStyle("Venenoso", "#A33EA1"),
-    "ground": TypeStyle("Terrestre", "#E2BF65"),
-    "flying": TypeStyle("Voador", "#A98FF3"),
-    "psychic": TypeStyle("Psíquico", "#F95587"),
-    "bug": TypeStyle("Inseto", "#A6B91A"),
-    "rock": TypeStyle("Pedra", "#B6A136"),
-    "ghost": TypeStyle("Fantasma", "#735797"),
-    "dragon": TypeStyle("Dragão", "#6F35FC"),
-    "dark": TypeStyle("Sombrio", "#705746"),
-    "steel": TypeStyle("Aço", "#B7B7CE"),
-    "fairy": TypeStyle("Fada", "#D685AD"),
-}
 
 STAT_NAMES = {
     "hp": "HP",
@@ -83,21 +106,6 @@ def format_measure(value: float, unit: str) -> str:
     return f"{value:.1f} {unit}".replace(".", ",")
 
 
-def mix_colors(color: str, other: str, amount: float) -> str:
-    """Mistura duas cores "#rrggbb"; `amount` é quanto entra de `other`."""
-    channels = [
-        round(int(color[i:i + 2], 16) * (1 - amount)
-              + int(other[i:i + 2], 16) * amount)
-        for i in (1, 3, 5)
-    ]
-    return "#" + "".join(f"{channel:02x}" for channel in channels)
-
-
-def pastel(color: str) -> str:
-    """Versão clara e suave da cor, misturada com branco."""
-    return mix_colors(color, WHITE, PASTEL_AMOUNT)
-
-
 def type_styles(pokemon: Pokemon) -> list[TypeStyle]:
     return [TYPES[name] for name in pokemon.types]
 
@@ -106,27 +114,17 @@ def stat_rows(pokemon: Pokemon) -> list[tuple[str, int]]:
     return [(label, pokemon.stats[name]) for name, label in STAT_NAMES.items()]
 
 
+def bar_fraction(value: int) -> float:
+    """Quanto da barra de status fica preenchido, de 0 a 1."""
+    return min(value / STAT_BAR_MAX, 1)
+
+
 def ability_rows(pokemon: Pokemon) -> list[tuple[str, bool]]:
     """Habilidades na ordem de exibição, indicando qual é a oculta."""
     rows = [(name, False) for name in pokemon.abilities]
     if pokemon.hidden_ability:
         rows.append((pokemon.hidden_ability, True))
     return rows
-
-
-def readable_text_color(background: str) -> str:
-    """Escolhe texto claro ou escuro, o que contrastar mais com o fundo.
-
-    Usa a luminância relativa da WCAG: acima de ~0,18 o texto escuro tem
-    mais contraste que o branco.
-    """
-    channels = [int(background[i:i + 2], 16) / 255 for i in (1, 3, 5)]
-    red, green, blue = [
-        c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-        for c in channels
-    ]
-    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
-    return DARK_TEXT_COLOR if luminance > 0.18 else TEXT_COLOR
 
 
 def clear(frame: tk.Misc) -> None:
@@ -144,24 +142,46 @@ class PokedexWindow:
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._rows: dict[int, ListRow] = {}
         self._selected: int | None = None
+        self._shown: int | None = None  # Pokémon exibido nos cards
+        self._hovered: int | None = None  # linha sob o mouse
+        self._selected_background = ELEVATED_COLOR
+        self._list_focused = False
         self._pending: Future | None = None
+        self._count_text = ""  # "151 Pokémon", depois que a lista chega
+        self._query = ""  # busca aplicada à lista
+        self._search_focused = False
+        self._accent = MUTED_COLOR  # cor de destaque do tipo atual
+        self._artwork_image: Image.Image | None = None  # arte original
+        self._artwork_job: str | None = None
+        self._status_job: str | None = None
 
-        self._title_font = ctk.CTkFont(size=30, weight="bold")
-        self._heading_font = ctk.CTkFont(size=17, weight="bold")
-        self._body_font = ctk.CTkFont(size=14)
-        self._bold_font = ctk.CTkFont(size=14, weight="bold")
-        self._small_font = ctk.CTkFont(size=12, weight="bold")
+        self._hero_font = ctk.CTkFont(size=FONT_HERO, weight="bold")
+        self._heading_font = ctk.CTkFont(size=FONT_HEADING, weight="bold")
+        self._body_font = ctk.CTkFont(size=FONT_BODY)
+        self._bold_font = ctk.CTkFont(size=FONT_BODY, weight="bold")
+        self._small_font = ctk.CTkFont(size=FONT_BADGE, weight="bold")
+        self._tag_font = ctk.CTkFont(size=FONT_TAG, weight="bold")
+        self._sidebar_title_font = ctk.CTkFont(
+            size=FONT_SIDEBAR_TITLE, weight="bold"
+        )
 
+        width, height = WINDOW_SIZE
         self._root.title("PokePython")
-        self._root.geometry("920x680")
-        self._root.minsize(920, 680)
+        self._root.geometry(f"{width}x{height}")
+        self._root.minsize(width, height)
         self._root.protocol("WM_DELETE_WINDOW", self._close)
         self._root.grid_columnconfigure(0, weight=1)
         self._root.grid_rowconfigure(0, weight=1)
 
         self._build_details()
         self._build_sidebar()
-        self._set_status("Carregando a Pokédex...")
+        # Teclado: setas trocam o Pokémon (com o foco na lista ou na busca)
+        # e Ctrl+F leva à busca.
+        self._root.bind("<Up>", lambda _event: self._move_selection(-1))
+        self._root.bind("<Down>", lambda _event: self._move_selection(1))
+        for key in ("<Control-f>", "<Control-F>"):
+            self._root.bind(key, lambda _event: self._focus_search())
+        self._show_status("Carregando a Pokédex...")
         self._run_in_background(repository.list_entries, self._show_entries)
 
     def run(self) -> None:
@@ -171,129 +191,285 @@ class PokedexWindow:
 
     def _build_sidebar(self) -> None:
         sidebar = ctk.CTkFrame(
-            self._root, width=260, corner_radius=0, fg_color=SIDEBAR_COLOR
+            self._root, corner_radius=0, fg_color=SIDEBAR_COLOR
         )
         sidebar.grid(row=0, column=1, sticky="ns")
         sidebar.grid_rowconfigure(3, weight=1)
+        sidebar.grid_columnconfigure(0, weight=1)
 
-        title = self._label(sidebar, "Pokédex", self._title_font)
-        title.grid(row=0, column=0, sticky="w", padx=20, pady=(20, 0))
-        self._subtitle = self._label(sidebar, "", color=MUTED_COLOR)
-        self._subtitle.grid(row=1, column=0, sticky="w", padx=20)
+        # Título, busca e lista começam na mesma borda esquerda.
+        # Menor que o nome do Pokémon, para não disputar atenção com ele.
+        title = self._label(sidebar, "Pokédex", self._sidebar_title_font)
+        title.grid(
+            row=0, column=0, sticky="w",
+            padx=WINDOW_MARGIN, pady=(WINDOW_MARGIN, 0),
+        )
+        # Mostra quantos Pokémon há e, quando preciso, avisos de
+        # carregamento ou de erro.
+        self._status = self._label(
+            sidebar, "", color=MUTED_COLOR, wraplength=LIST_WIDTH,
+            justify="left",
+        )
+        self._status.grid(row=1, column=0, sticky="w", padx=WINDOW_MARGIN)
+
+        self._search_box = self._build_search(sidebar)
+        self._search_box.grid(
+            row=2, column=0, sticky="ew", padx=WINDOW_MARGIN, pady=CARD_GAP
+        )
+
+        # Sem canto arredondado: com ele, o CTkScrollableFrame recua o
+        # conteúdo e as linhas saem do alinhamento com a busca.
+        self._list = ctk.CTkScrollableFrame(
+            sidebar, width=LIST_WIDTH, corner_radius=0,
+            fg_color="transparent",
+        )
+        self._list.grid(
+            row=3, column=0, sticky="nsew",
+            padx=WINDOW_MARGIN, pady=(0, WINDOW_MARGIN),
+        )
+        self._list.grid_columnconfigure(0, weight=1)
+        # A lista recebe o foco com um clique numa linha ou com Tab. Com
+        # foco, a linha selecionada ganha um anel na cor do tipo.
+        tk.Frame.configure(self._list, takefocus=True)
+        self._list.bind("<FocusIn>", lambda _event: self._set_list_focus(True))
+        self._list.bind(
+            "<FocusOut>", lambda _event: self._set_list_focus(False)
+        )
+
+    def _build_search(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
+        """Campo de busca com lupa, borda de foco e botão para limpar.
+
+        O CTkEntry não aceita ícone; por isso uma moldura com borda leva
+        a lupa, o campo e o "×" lado a lado.
+        """
+        box = ctk.CTkFrame(
+            parent,
+            width=LIST_WIDTH,
+            height=SEARCH_HEIGHT,
+            corner_radius=CONTROL_RADIUS,
+            fg_color=CARD_COLOR,
+            border_width=BORDER_WIDTH,
+            border_color=BORDER_COLOR,
+        )
+        box.grid_propagate(False)  # mesma altura com borda de 1 ou 2 px
+        box.grid_rowconfigure(0, weight=1)
+        box.grid_columnconfigure(1, weight=1)
+
+        icon = ctk.CTkLabel(
+            box,
+            text="",
+            image=ctk.CTkImage(
+                search_icon(MUTED_COLOR, ICON_SIZE),
+                size=(ICON_SIZE, ICON_SIZE),
+            ),
+            width=ICON_SIZE,
+            height=ICON_SIZE,
+        )
+        icon.grid(row=0, column=0, padx=(CONTROL_PADDING, ITEM_GAP // 2))
 
         self._search = ctk.CTkEntry(
-            sidebar,
+            box,
             placeholder_text="Buscar nome ou número",
-            height=38,
-            corner_radius=10,
-            border_width=0,
+            placeholder_text_color=MUTED_COLOR,
+            text_color=TEXT_COLOR,
             fg_color=CARD_COLOR,
+            border_width=0,
+            corner_radius=0,
             font=self._body_font,
         )
-        self._search.grid(row=2, column=0, sticky="ew", padx=16, pady=16)
+        # Recuo à direita: sem ele, com o "×" escondido, o fundo do campo
+        # cobriria a borda arredondada da moldura.
+        self._search.grid(row=0, column=1, sticky="ew", padx=(0, ITEM_GAP))
+
+        self._clear_button = ctk.CTkButton(
+            box,
+            text="",
+            image=ctk.CTkImage(
+                close_icon(MUTED_COLOR, CLEAR_ICON_SIZE),
+                size=(CLEAR_ICON_SIZE, CLEAR_ICON_SIZE),
+            ),
+            width=CLEAR_BUTTON_SIZE,
+            height=CLEAR_BUTTON_SIZE,
+            corner_radius=CLEAR_BUTTON_SIZE // 2,
+            fg_color="transparent",
+            hover_color=ELEVATED_COLOR,
+            command=self._clear_search,
+        )
+        self._clear_button.grid(row=0, column=2, padx=(0, ITEM_GAP))
+        self._clear_button.grid_remove()  # só aparece quando há texto
+
+        # Clicar na lupa ou na moldura também leva ao campo.
+        for widget in (box, icon):
+            widget.bind("<Button-1>", lambda _event: self._search.focus_set())
         self._search.bind("<KeyRelease>", self._apply_filter)
-
-        self._list = ctk.CTkScrollableFrame(
-            sidebar, width=210, fg_color="transparent"
+        self._search.bind("<Escape>", lambda _event: self._clear_search())
+        for key in ("<Return>", "<KP_Enter>"):
+            self._search.bind(key, lambda _event: self._open_first_result())
+        self._search.bind(
+            "<FocusIn>", lambda _event: self._paint_search_border(True)
         )
-        self._list.grid(row=3, column=0, sticky="nsew", padx=8)
-        self._list.grid_columnconfigure(0, weight=1)
-
-        self._status = self._label(
-            sidebar, "", color=MUTED_COLOR, wraplength=220, justify="left"
+        self._search.bind(
+            "<FocusOut>", lambda _event: self._paint_search_border(False)
         )
-        self._status.grid(row=4, column=0, sticky="w", padx=20, pady=12)
+        return box
 
     def _build_details(self) -> None:
         details = ctk.CTkFrame(self._root, fg_color="transparent")
-        details.grid(row=0, column=0, sticky="nsew", padx=24, pady=24)
+        details.grid(
+            row=0, column=0, sticky="nsew",
+            padx=WINDOW_MARGIN, pady=WINDOW_MARGIN,
+        )
         details.grid_columnconfigure(0, weight=3, uniform="cards")
         details.grid_columnconfigure(1, weight=2, uniform="cards")
-        details.grid_rowconfigure(2, weight=1)  # cards ocupam o espaço livre
+        # A altura que sobra vai para o hero; os cards de baixo ficam com a
+        # altura do próprio conteúdo.
+        details.grid_rowconfigure(0, weight=1)
 
         # Card em tom pastel da cor do tipo principal, com nome, número e
         # tipos no topo.
         self._hero = ctk.CTkFrame(
-            details, corner_radius=24, fg_color=CARD_COLOR
+            details, corner_radius=HERO_RADIUS, fg_color=CARD_COLOR
         )
-        self._hero.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self._hero.grid(row=0, column=0, columnspan=2, sticky="nsew")
         header = self._container(self._hero)
-        header.pack(fill="x", padx=24, pady=(18, 0))
-        self._name = self._label(header, "", self._title_font)
+        header.pack(fill="x", padx=CARD_PADDING, pady=(CARD_PADDING, 0))
+        self._name = self._label(header, "", self._hero_font)
         self._name.pack(side="left")
         self._number = self._label(header, "", self._heading_font)
-        self._number.pack(side="left", padx=12, pady=(6, 0))
+        self._number.pack(
+            side="left", padx=WIDE_GAP, pady=(HERO_NUMBER_NUDGE, 0)
+        )
         self._badges = self._container(header)
         self._badges.pack(side="right")
-        self._artwork = ctk.CTkLabel(
-            self._hero, text="", width=ARTWORK_SIZE, height=ARTWORK_SIZE
+        # A área da arte ocupa o resto do hero. A arte fica centralizada
+        # com place(), que não muda o tamanho da área: assim ela pode
+        # acompanhar o hero sem empurrar o layout.
+        self._art_area = ctk.CTkFrame(
+            self._hero,
+            width=ARTWORK_MIN_SIZE,
+            height=ARTWORK_MIN_SIZE,
+            fg_color="transparent",
         )
-        self._artwork.pack(pady=(0, 16))
+        self._art_area.pack(
+            fill="both", expand=True,
+            padx=CARD_PADDING, pady=(0, CARD_PADDING),
+        )
+        self._artwork = ctk.CTkLabel(
+            self._art_area, text="", width=0, height=0
+        )
+        self._artwork.place(relx=0.5, rely=0.5, anchor="center")
+        self._art_area.bind("<Configure>", self._schedule_artwork_resize)
 
-        # Esquerda: stats. Direita: habilidades e, embaixo, peso e altura.
+        # Esquerda: status. Direita: habilidades e, embaixo, peso e altura.
+        half_gap = CARD_GAP // 2
         stats_card = self._card(details)
         stats_card.grid(
-            row=1, column=0, rowspan=2, sticky="nsew",
-            padx=(0, 8), pady=(14, 0),
+            row=1, column=0, sticky="nsew",
+            padx=(0, half_gap), pady=(CARD_GAP, 0),
         )
         self._build_stats(stats_card)
 
-        abilities_card = self._card(details)
-        abilities_card.grid(
-            row=1, column=1, sticky="nsew", padx=(8, 0), pady=(14, 8)
+        right_column = self._container(details)
+        right_column.grid(
+            row=1, column=1, sticky="nsew",
+            padx=(half_gap, 0), pady=(CARD_GAP, 0),
         )
-        abilities_title = self._label(
-            abilities_card, "Habilidades", self._heading_font
+        abilities_card = self._card(right_column)
+        abilities_card.pack(fill="x")
+        self._card_title(abilities_card, "Habilidades").pack(
+            anchor="w", padx=CARD_PADDING, pady=(CARD_PADDING, TITLE_GAP)
         )
-        abilities_title.pack(anchor="w", padx=20, pady=(16, 4))
         self._abilities = self._container(abilities_card)
-        self._abilities.pack(fill="x", padx=20, pady=(0, 14))
+        self._abilities.pack(
+            fill="x", padx=CARD_PADDING, pady=(0, CARD_PADDING)
+        )
 
-        measures_card = self._card(details)
-        measures_card.grid(row=2, column=1, sticky="nsew", padx=(8, 0))
+        # Se o card de status for mais alto, Medidas cresce até a mesma base.
+        measures_card = self._card(right_column)
+        measures_card.pack(fill="both", expand=True, pady=(CARD_GAP, 0))
         self._build_measures(measures_card)
 
     def _build_measures(self, card: ctk.CTkFrame) -> None:
         card.grid_columnconfigure(1, weight=1)
-        title = self._label(card, "Medidas", self._heading_font)
-        title.grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=20, pady=(16, 4)
+        self._card_title(card, "Medidas").grid(
+            row=0, column=0, columnspan=2, sticky="w",
+            padx=CARD_PADDING, pady=(CARD_PADDING, TITLE_GAP),
         )
+        labels = ("Altura", "Peso")
         self._measures: list[ctk.CTkLabel] = []
-        for row, label in enumerate(("Altura", "Peso"), start=1):
+        for row, label in enumerate(labels, start=1):
+            bottom = CARD_PADDING if row == len(labels) else 0
             name = self._label(card, label, color=MUTED_COLOR)
-            name.grid(row=row, column=0, sticky="w", padx=(20, 12))
+            name.grid(
+                row=row, column=0, sticky="w",
+                padx=(CARD_PADDING, WIDE_GAP), pady=(0, bottom),
+            )
             value = self._label(card, "", self._bold_font)
-            value.grid(row=row, column=1, sticky="w", padx=(0, 20))
+            value.grid(
+                row=row, column=1, sticky="w",
+                padx=(0, CARD_PADDING), pady=(0, bottom),
+            )
+            card.grid_rowconfigure(row, weight=1)  # divide a altura extra
             self._measures.append(value)
 
     def _build_stats(self, card: ctk.CTkFrame) -> None:
         card.grid_columnconfigure(2, weight=1)
-        title = self._label(card, "Stats base", self._heading_font)
-        title.grid(
-            row=0, column=0, columnspan=3, sticky="w", padx=20, pady=(16, 8)
+        self._card_title(card, "Status base").grid(
+            row=0, column=0, columnspan=3, sticky="w",
+            padx=CARD_PADDING, pady=(CARD_PADDING, TITLE_GAP),
         )
 
         # Cada linha: nome do stat, valor e barra (criadas uma vez só).
         self._stat_widgets: list[tuple[ctk.CTkLabel, ctk.CTkProgressBar]] = []
         for row, label in enumerate(STAT_NAMES.values(), start=1):
             name = self._label(card, label, color=MUTED_COLOR)
-            name.grid(row=row, column=0, sticky="w", padx=(20, 8))
-            value = self._label(card, "", self._bold_font, width=36)
+            name.grid(
+                row=row, column=0, sticky="w", padx=(CARD_PADDING, ITEM_GAP)
+            )
+            value = self._label(
+                card, "", self._bold_font, width=STAT_VALUE_WIDTH
+            )
             value.grid(row=row, column=1, sticky="e")
             bar = ctk.CTkProgressBar(
-                card, height=8,
-                fg_color=HOVER_COLOR, progress_color=HOVER_COLOR,
+                card, height=BAR_HEIGHT,
+                fg_color=ELEVATED_COLOR, progress_color=ELEVATED_COLOR,
             )
             bar.set(0)
-            bar.grid(row=row, column=2, sticky="ew", padx=(12, 20))
+            bar.grid(
+                row=row, column=2, sticky="ew", padx=(WIDE_GAP, CARD_PADDING)
+            )
+            # Se a coluna da direita for mais alta, as linhas se espaçam
+            # em vez de sobrar um vão embaixo do Total.
+            card.grid_rowconfigure(row, weight=1)
             self._stat_widgets.append((value, bar))
 
-        total_row = len(STAT_NAMES) + 1
+        divider_row = len(STAT_NAMES) + 1
+        # O desenho padrão do CustomTkinter no Windows (com fontes) não pinta
+        # formas de 1 px; com polígonos a linha aparece.
+        divider = ctk.CTkFrame(
+            card, height=1, corner_radius=0, fg_color=ELEVATED_COLOR,
+            overwrite_preferred_drawing_method="polygon_shapes",
+        )
+        divider.grid(
+            row=divider_row, column=0, columnspan=3, sticky="ew",
+            padx=CARD_PADDING, pady=ITEM_GAP // 2,
+        )
+
+        total_row = divider_row + 1
         total = self._label(card, "Total", self._bold_font)
-        total.grid(row=total_row, column=0, sticky="w", padx=20, pady=(4, 16))
-        self._total = self._label(card, "", self._bold_font, width=36)
-        self._total.grid(row=total_row, column=1, sticky="e", pady=(4, 16))
+        total.grid(
+            row=total_row, column=0, sticky="w",
+            padx=(CARD_PADDING, ITEM_GAP), pady=(0, CARD_PADDING),
+        )
+        self._total = self._label(
+            card, "", self._bold_font, width=STAT_VALUE_WIDTH
+        )
+        self._total.grid(
+            row=total_row, column=1, sticky="e", pady=(0, CARD_PADDING)
+        )
+
+    def _card_title(self, card: ctk.CTkFrame, text: str) -> ctk.CTkLabel:
+        return self._label(card, text, self._heading_font)
 
     def _label(
         self,
@@ -312,24 +488,26 @@ class PokedexWindow:
             **options,
         )
 
-    def _pill(
-        self, parent: tk.Misc, text: str, background: str
+    def _type_badge(
+        self, parent: tk.Misc, style: TypeStyle
     ) -> ctk.CTkLabel:
-        """Etiqueta arredondada, usada nos tipos e na habilidade oculta."""
+        """Selo arredondado com o nome do tipo, na cor dele."""
         return ctk.CTkLabel(
             parent,
-            text=text,
+            text=style.label,
             font=self._small_font,
-            fg_color=background,
-            text_color=readable_text_color(background),
-            corner_radius=12,
-            height=26,
-            padx=10,
+            fg_color=style.color,
+            text_color=badge_text_color(style.color),
+            corner_radius=PILL_RADIUS,
+            height=PILL_HEIGHT,
+            padx=PILL_PADDING,
         )
 
     @staticmethod
     def _card(parent: tk.Misc) -> ctk.CTkFrame:
-        return ctk.CTkFrame(parent, corner_radius=18, fg_color=CARD_COLOR)
+        return ctk.CTkFrame(
+            parent, corner_radius=CARD_RADIUS, fg_color=CARD_COLOR
+        )
 
     @staticmethod
     def _container(parent: tk.Misc) -> ctk.CTkFrame:
@@ -345,10 +523,13 @@ class PokedexWindow:
     # --- Lista e busca -------------------------------------------------
 
     def _show_entries(self, entries: list[PokedexEntry]) -> None:
-        self._subtitle.configure(text=f"{len(entries)} Pokémon")
+        self._count_text = f"{len(entries)} Pokémon"
+        self._show_status(self._count_text)
         for position, entry in enumerate(entries):
             row = self._make_row(entry)
-            row.frame.grid(row=position, column=0, sticky="ew", pady=1)
+            row.frame.grid(
+                row=position, column=0, sticky="ew", pady=(0, ROW_GAP)
+            )
             self._rows[entry.number] = row
         self._select(entries[0])
 
@@ -356,18 +537,26 @@ class PokedexWindow:
         # O CTkButton só aceita uma fonte para o texto todo; com dois
         # labels, o número pode ficar em negrito e o nome não.
         frame = ctk.CTkFrame(
-            self._list, corner_radius=8, fg_color="transparent"
+            self._list, corner_radius=ROW_RADIUS, fg_color="transparent"
         )
+        # Textos um pouco mais baixos que a linha, para não cobrirem o anel
+        # de foco desenhado na borda dela.
+        text_height = ROW_HEIGHT - 2 * ROW_INSET
         number_text = format_number(entry.number)
-        number = self._label(frame, number_text, self._bold_font, width=44)
-        number.pack(side="left", padx=(12, 6), pady=3)
-        name = self._label(frame, entry.name)
-        name.pack(side="left", pady=3)
+        number = self._label(
+            frame, number_text, self._bold_font,
+            width=NUMBER_WIDTH, height=text_height,
+        )
+        number.pack(
+            side="left", padx=(CONTROL_PADDING, ITEM_GAP), pady=ROW_INSET
+        )
+        name = self._label(frame, entry.name, height=text_height)
+        name.pack(side="left", pady=ROW_INSET)
 
         for widget in (frame, number, name):
             widget.configure(cursor="hand2")
             widget.bind(
-                "<Button-1>", lambda _event, e=entry: self._select(e)
+                "<Button-1>", lambda _event, e=entry: self._click_row(e)
             )
             widget.bind(
                 "<Enter>", lambda _event, n=entry.number: self._hover(n)
@@ -375,7 +564,12 @@ class PokedexWindow:
             widget.bind(
                 "<Leave>", lambda _event, n=entry.number: self._hover(n)
             )
-        return ListRow(frame, number, name, f"{number_text} {entry.name}")
+        search_text = f"{number_text} {entry.name}".lower()
+        return ListRow(entry, frame, number, name, search_text)
+
+    def _click_row(self, entry: PokedexEntry) -> None:
+        self._list.focus_set()  # as setas seguem daqui, com anel de foco
+        self._select(entry)
 
     def _hover(self, number: int) -> None:
         """Destaca a linha enquanto o mouse estiver sobre ela.
@@ -383,26 +577,111 @@ class PokedexWindow:
         Ao passar do fundo da linha para um dos textos, o Tk avisa que o
         mouse saiu da linha; por isso conferimos onde o mouse está de fato.
         """
-        if number == self._selected:
-            return
         frame = self._rows[number].frame
         x, y = self._root.winfo_pointerxy()
         under = str(self._root.winfo_containing(x, y))
-        inside = under == str(frame) or under.startswith(f"{frame}.")
-        frame.configure(fg_color=HOVER_COLOR if inside else "transparent")
+        if under == str(frame) or under.startswith(f"{frame}."):
+            self._hovered = number
+        elif self._hovered == number:
+            self._hovered = None
+        self._paint_row(number)
 
-    def _paint_row(
-        self, number: int, background: str, text_color: str = TEXT_COLOR
-    ) -> None:
+    def _paint_row(self, number: int) -> None:
+        """Pinta a linha conforme o estado: selecionada, sob o mouse ou não.
+
+        A selecionada usa o pastel do Pokémon (cinza enquanto carrega) e,
+        com a lista em foco, ganha um anel de 2 px na cor do tipo.
+        """
         row = self._rows[number]
-        row.frame.configure(fg_color=background)
+        border = 0
+        if number == self._selected:
+            background = self._selected_background
+            if self._list_focused:
+                border = FOCUS_BORDER_WIDTH
+        elif number == self._hovered:
+            background = ELEVATED_COLOR
+        else:
+            background = "transparent"
+        text_color = (
+            TEXT_COLOR if background == "transparent"
+            else readable_text_color(background)
+        )
+        row.frame.configure(
+            fg_color=background, border_width=border,
+            border_color=self._accent,
+        )
         row.number.configure(text_color=text_color)
         row.name.configure(text_color=text_color)
 
-    def _apply_filter(self, _event: tk.Event) -> None:
-        query = self._search.get().strip().lower()
+    def _set_list_focus(self, focused: bool) -> None:
+        self._list_focused = focused
+        if self._selected is not None:
+            self._paint_row(self._selected)
+
+    def _visible_numbers(self) -> list[int]:
+        """Números das linhas que a busca deixou à mostra, em ordem."""
+        return [
+            number for number, row in self._rows.items()
+            if row.frame.winfo_manager()  # "" quando escondida pela busca
+        ]
+
+    def _move_selection(self, step: int) -> str:
+        """Seta para cima (-1) ou para baixo (+1): seleciona o vizinho."""
+        visible = self._visible_numbers()
+        if visible:
+            if self._selected in visible:
+                index = visible.index(self._selected) + step
+                index = max(0, min(index, len(visible) - 1))
+            else:
+                index = 0  # a seleção sumiu na busca: vai ao primeiro
+            self._select(self._rows[visible[index]].entry)
+        return "break"  # a tecla já foi tratada
+
+    def _open_first_result(self) -> str:
+        visible = self._visible_numbers()
+        if visible:
+            self._select(self._rows[visible[0]].entry)
+        return "break"
+
+    def _focus_search(self) -> str:
+        self._search.focus_set()
+        self._search.select_range(0, "end")  # digitar substitui a busca
+        return "break"
+
+    def _scroll_to(self, number: int) -> None:
+        """Rola a lista só o necessário para a linha ficar inteira à vista."""
+        self._root.update_idletasks()  # posições em dia depois de filtrar
+        frame = self._rows[number].frame
+        # O CTkScrollableFrame não tem método público para rolar.
+        canvas = self._list._parent_canvas
+        content_height = self._list.winfo_height()
+        if content_height <= 1:
+            return  # a lista ainda não foi desenhada
+        top = frame.winfo_y()
+        bottom = top + frame.winfo_height()
+        view_top, view_bottom = (
+            fraction * content_height for fraction in canvas.yview()
+        )
+        if top < view_top:
+            canvas.yview_moveto(top / content_height)
+        elif bottom > view_bottom:
+            canvas.yview_moveto(
+                (bottom - (view_bottom - view_top)) / content_height
+            )
+
+    def _apply_filter(self, _event: tk.Event | None = None) -> None:
+        text = self._search.get()
+        if text:
+            self._clear_button.grid()
+        else:
+            self._clear_button.grid_remove()
+
+        query = text.strip().lower()
+        if query == self._query:
+            return  # teclas como as setas não mudam o texto
+        self._query = query
         for row in self._rows.values():
-            if query in row.search_text.lower():
+            if query in row.search_text:
                 row.frame.grid()  # volta para a mesma posição de antes
             else:
                 row.frame.grid_remove()
@@ -410,12 +689,34 @@ class PokedexWindow:
         # da vista. O CTkScrollableFrame não tem método público para isso.
         self._list._parent_canvas.yview_moveto(0)
 
+    def _clear_search(self) -> None:
+        self._search.delete(0, "end")
+        self._search.focus_set()
+        self._apply_filter()
+
+    def _paint_search_border(self, focused: bool | None = None) -> None:
+        """Borda de 2 px na cor do tipo atual quando o campo tem foco."""
+        if focused is not None:
+            self._search_focused = focused
+        if self._search_focused:
+            self._search_box.configure(
+                border_width=FOCUS_BORDER_WIDTH, border_color=self._accent
+            )
+        else:
+            self._search_box.configure(
+                border_width=BORDER_WIDTH, border_color=BORDER_COLOR
+            )
+
     def _select(self, entry: PokedexEntry) -> None:
-        if self._selected is not None:
-            self._paint_row(self._selected, "transparent")
-        self._selected = entry.number
+        self._scroll_to(entry.number)
+        if entry.number == self._selected == self._shown:
+            return  # já está na tela
+        previous, self._selected = self._selected, entry.number
         # Cinza enquanto carrega; ao terminar, ganha o pastel do card.
-        self._paint_row(entry.number, HOVER_COLOR)
+        self._selected_background = ELEVATED_COLOR
+        if previous is not None:
+            self._paint_row(previous)
+        self._paint_row(entry.number)
         self._load(entry)
 
     # --- Carregamento e exibição do Pokémon ----------------------------
@@ -424,7 +725,10 @@ class PokedexWindow:
         if self._pending is not None:
             # Descarta o pedido anterior se ele ainda não começou.
             self._pending.cancel()
-        self._set_status(f"Carregando {entry.name}...")
+        self._cancel_status_delay()
+        self._status_job = self._root.after(
+            STATUS_DELAY_MS, self._show_status, f"Carregando {entry.name}..."
+        )
         self._pending = self._run_in_background(
             lambda: self._fetch(entry.number), self._show_pokemon
         )
@@ -433,24 +737,30 @@ class PokedexWindow:
         """Roda fora da thread da interface: baixa dados e prepara a imagem."""
         pokemon = self._repository.get_pokemon(number)
         image = Image.open(BytesIO(self._repository.get_artwork(pokemon)))
-        image.thumbnail((ARTWORK_SIZE, ARTWORK_SIZE))
+        image.thumbnail((ARTWORK_MAX_SIZE, ARTWORK_MAX_SIZE))
         return pokemon, image
 
     def _show_pokemon(self, result: tuple[Pokemon, Image.Image]) -> None:
         pokemon, image = result
+        if pokemon.number != self._selected:
+            return  # chegou tarde: o usuário já escolheu outro Pokémon
+        self._shown = pokemon.number
         color = type_styles(pokemon)[0].color
         background = pastel(color)
         text_color = readable_text_color(background)
 
         self._hero.configure(fg_color=background)
-        self._artwork.configure(image=ctk.CTkImage(image, size=image.size))
+        self._artwork_image = image
+        self._render_artwork()
         self._name.configure(text=pokemon.name, text_color=text_color)
         self._number.configure(
             text=format_number(pokemon.number),
-            text_color=mix_colors(text_color, background, MUTED_AMOUNT),
+            text_color=hero_number_color(background),
         )
-        if pokemon.number == self._selected:
-            self._paint_row(pokemon.number, background, text_color)
+        self._accent = bar_color(color)
+        self._selected_background = background
+        self._paint_row(pokemon.number)
+        self._paint_search_border()
 
         height_label, weight_label = self._measures
         height_label.configure(text=format_measure(pokemon.height, "m"))
@@ -458,26 +768,60 @@ class PokedexWindow:
 
         clear(self._badges)
         for style in type_styles(pokemon):
-            badge = self._pill(self._badges, style.label, style.color)
-            badge.pack(side="left", padx=(8, 0))
+            badge = self._type_badge(self._badges, style)
+            badge.pack(side="left", padx=(ITEM_GAP, 0))
 
         stats = zip(self._stat_widgets, stat_rows(pokemon))
         for (value_label, bar), (_, value) in stats:
             value_label.configure(text=str(value))
-            bar.configure(progress_color=color)
-            bar.set(value / MAX_BASE_STAT)
+            bar.configure(progress_color=bar_color(color))
+            bar.set(bar_fraction(value))
         self._total.configure(text=str(pokemon.total))
 
         clear(self._abilities)
         for name, hidden in ability_rows(pokemon):
             row = ctk.CTkFrame(self._abilities, fg_color="transparent")
-            row.pack(fill="x", pady=3)
+            row.pack(fill="x")
             self._label(row, name).pack(side="left")
             if hidden:
-                self._pill(row, "oculta", HOVER_COLOR).pack(
-                    side="left", padx=8
-                )
-        self._set_status("")
+                # Rótulo simples, sem fundo: um selo arredondado parecia
+                # um botão.
+                tag = self._label(row, "OCULTA", self._tag_font, MUTED_COLOR)
+                tag.pack(side="left", padx=ITEM_GAP)
+        self._show_status(self._count_text)
+
+    def _schedule_artwork_resize(self, _event: tk.Event) -> None:
+        """Redesenha a arte quando o hero muda de tamanho.
+
+        Arrastar a borda da janela gera dezenas de eventos; espera um
+        instante e redesenha uma vez só.
+        """
+        if self._artwork_job is not None:
+            self._root.after_cancel(self._artwork_job)
+        self._artwork_job = self._root.after(
+            RESIZE_DELAY_MS, self._render_artwork
+        )
+
+    def _render_artwork(self) -> None:
+        """Ajusta a arte ao maior quadrado que cabe na área dela."""
+        self._artwork_job = None
+        if self._artwork_image is None:
+            return
+        # winfo_* mede em pixels da tela; o CTkImage espera o tamanho antes
+        # da escala do Windows (125%, 150%...).
+        scaling = ctk.ScalingTracker.get_widget_scaling(self._art_area)
+        available = min(
+            self._art_area.winfo_width(), self._art_area.winfo_height()
+        ) / scaling
+        side = min(available, ARTWORK_MAX_SIZE)
+        if side < 1:
+            return  # a janela ainda não foi desenhada
+        width, height = self._artwork_image.size
+        ratio = side / max(width, height)
+        size = (round(width * ratio), round(height * ratio))
+        self._artwork.configure(
+            image=ctk.CTkImage(self._artwork_image, size=size)
+        )
 
     # --- Execução em segundo plano -------------------------------------
 
@@ -508,12 +852,19 @@ class PokedexWindow:
         try:
             result = future.result()
         except (OSError, ValueError):  # sem rede, erro HTTP, JSON inválido
-            self._set_status(CONNECTION_ERROR, ERROR_COLOR)
+            self._show_status(CONNECTION_ERROR, ERROR_COLOR)
         else:
             on_success(result)
 
-    def _set_status(self, text: str, color: str = MUTED_COLOR) -> None:
+    def _show_status(self, text: str, color: str = MUTED_COLOR) -> None:
+        """Mostra um aviso no lugar da contagem de Pokémon."""
+        self._cancel_status_delay()
         self._status.configure(text=text, text_color=color)
+
+    def _cancel_status_delay(self) -> None:
+        if self._status_job is not None:
+            self._root.after_cancel(self._status_job)
+            self._status_job = None
 
     def _close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)

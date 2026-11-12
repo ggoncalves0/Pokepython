@@ -11,15 +11,25 @@ from pokedex.pokeapi import (
     format_name,
     parse_pokemon,
 )
-from pokedex.ui import (
+from pokedex.theme import (
     DARK_TEXT_COLOR,
+    ELEVATED_COLOR,
+    MIN_BAR_CONTRAST,
+    MIN_TEXT_CONTRAST,
     TEXT_COLOR,
     TYPES,
-    ability_rows,
-    format_measure,
+    badge_text_color,
+    bar_color,
+    contrast_ratio,
+    hero_number_color,
     mix_colors,
     pastel,
     readable_text_color,
+)
+from pokedex.ui import (
+    ability_rows,
+    bar_fraction,
+    format_measure,
     stat_rows,
     type_styles,
 )
@@ -110,6 +120,11 @@ class DisplayTest(unittest.TestCase):
             ability_rows(pikachu), [("Static", False), ("Lightning Rod", True)]
         )
 
+    def test_bars_fill_at_180_and_stop_full(self) -> None:
+        self.assertEqual(bar_fraction(45), 0.25)
+        self.assertEqual(bar_fraction(180), 1)
+        self.assertEqual(bar_fraction(250), 1)  # HP do Chansey
+
     def test_formats_measures_with_comma(self) -> None:
         self.assertEqual(format_measure(0.4, "m"), "0,4 m")
         self.assertEqual(format_measure(460.0, "kg"), "460,0 kg")
@@ -131,6 +146,47 @@ class DisplayTest(unittest.TestCase):
         self.assertEqual(
             readable_text_color(TYPES["dragon"].color), TEXT_COLOR
         )
+
+
+class ThemeTest(unittest.TestCase):
+    # Tipos escuros: só neles o selo usa texto branco e a barra é clareada.
+    DARK_TYPES = {"fighting", "poison", "ghost", "dragon", "dark"}
+
+    def test_contrast_ratio_follows_wcag(self) -> None:
+        self.assertAlmostEqual(contrast_ratio("#000000", "#ffffff"), 21)
+        self.assertAlmostEqual(contrast_ratio("#ffffff", "#000000"), 21)
+        self.assertAlmostEqual(contrast_ratio("#777777", "#777777"), 1)
+
+    def test_every_type_meets_minimum_contrast(self) -> None:
+        for name, style in TYPES.items():
+            with self.subTest(tipo=name):
+                background = pastel(style.color)
+                for text in (
+                    readable_text_color(background),
+                    hero_number_color(background),
+                ):
+                    self.assertGreaterEqual(
+                        contrast_ratio(text, background), MIN_TEXT_CONTRAST
+                    )
+                self.assertGreaterEqual(
+                    contrast_ratio(badge_text_color(style.color), style.color),
+                    MIN_TEXT_CONTRAST,
+                )
+                self.assertGreaterEqual(
+                    contrast_ratio(bar_color(style.color), ELEVATED_COLOR),
+                    MIN_BAR_CONTRAST,
+                )
+
+    def test_only_dark_types_get_white_badge_text_and_lighter_bars(
+        self,
+    ) -> None:
+        for name, style in TYPES.items():
+            with self.subTest(tipo=name):
+                is_dark = name in self.DARK_TYPES
+                self.assertEqual(
+                    badge_text_color(style.color) == TEXT_COLOR, is_dark
+                )
+                self.assertEqual(bar_color(style.color) != style.color, is_dark)
 
 
 class PokeApiRepositoryTest(unittest.TestCase):

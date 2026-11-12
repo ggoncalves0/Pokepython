@@ -10,11 +10,24 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 - [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
 - [x] Nome, número e tipos (em português) no topo do card
 - [x] Imagem oficial de cada Pokémon
-- [x] Stats base com barras: HP, Ataque, Defesa, Ataque Esp., Defesa Esp., Velocidade e Total
+- [x] Status base com barras: HP, Ataque, Defesa, Ataque Esp., Defesa Esp., Velocidade e Total
 - [x] Habilidades, incluindo a habilidade oculta
 - [x] Altura e peso
 - [x] Cache local: cada Pokémon é baixado uma vez só e depois funciona offline
 - [x] A janela não trava enquanto os dados são baixados
+- [x] A arte cresce junto com a janela
+- [x] Navegação pelo teclado (veja abaixo)
+- [x] Contraste de cores conferido para os 18 tipos (WCAG AA)
+
+## Atalhos de teclado
+
+| Tecla | O que faz |
+| --- | --- |
+| ↑ / ↓ | Seleciona o Pokémon anterior / seguinte da lista (respeita a busca) |
+| Ctrl+F | Vai para a busca |
+| Enter (na busca) | Abre o primeiro resultado |
+| Esc (na busca) | Limpa a busca |
+| Tab / Shift+Tab | Alterna o foco entre a busca e a lista |
 
 ## Dados
 
@@ -57,6 +70,12 @@ python -m unittest
 
 Os testes não acessam a internet: usam uma API falsa.
 
+Para conferir o contraste das cores de todos os tipos (texto com pelo menos 4,5:1 e barras com pelo menos 3:1):
+
+```bash
+python scripts/check_contrast.py
+```
+
 ## Estrutura
 
 ```
@@ -66,7 +85,11 @@ Pokepython/
 │   ├── models.py      # dados (Pokemon, PokedexEntry) e o contrato da fonte de dados
 │   ├── pokeapi.py     # acesso à PokéAPI e conversão das respostas
 │   ├── cache.py       # cache em disco
+│   ├── theme.py       # cores, espaçamentos, fontes e regras de cor por tipo
+│   ├── icons.py       # ícones desenhados com o Pillow (lupa e "×")
 │   └── ui.py          # janela (CustomTkinter)
+├── scripts/
+│   └── check_contrast.py  # tabela de contraste das cores de cada tipo
 ├── tests/             # testes automatizados
 ├── requirements.txt   # dependências do projeto
 └── README.md
