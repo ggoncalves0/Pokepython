@@ -52,10 +52,9 @@ CURSOR_X = 4  # cursor ▶ a 4 px da borda da linha (o anel de foco ocupa 2)
 PILL_PADDING = 10  # recuo do texto dentro dos selos de tipo
 # Na Press Start 2P, os números ficam no alto da linha de texto. Estes
 # valores os descem: no card principal e nos cards, até a linha de base do
-# texto ao lado; na lista, até o meio da linha, junto do nome e do cursor.
+# texto ao lado.
 HERO_NUMBER_NUDGE = 3
 NUMBER_NUDGE = 4
-LIST_NUMBER_NUDGE = 2
 
 # --- Cantos arredondados --------------------------------------------------
 
@@ -91,7 +90,8 @@ ICON_SIZE = 16  # lupa da busca
 CLEAR_ICON_SIZE = 12  # "×" da busca
 CLEAR_BUTTON_SIZE = 24  # área clicável do "×"
 THEME_BUTTON_SIZE = 28  # botão de tema, da altura do título "Pokédex"
-NUMBER_WIDTH = 32  # coluna do número na lista: "#000" em 8 px
+NUMBER_WIDTH = 36  # coluna do número na lista: "#000" em 18 px
+LIST_ICON_SIZE = (28, 24)  # mini foto na lista: o miolo do ícone de 40 x 30
 CURSOR_SCALE = 2  # cursor de 8 x 14 px, a altura das maiúsculas do nome
 STAT_VALUE_WIDTH = 48  # coluna do valor nos status: "100" em 16 px
 BORDER_WIDTH = 1
@@ -108,10 +108,10 @@ FONT_HERO = 24  # nome do Pokémon
 # Número do card principal, valores dos status e das medidas, "Pokédex" e
 # títulos dos cards.
 FONT_TITLE = 16
-FONT_LIST_NUMBER = 8  # números da lista, menores que os nomes
 # Jersey 10, no resto. Em 18 px, cada pixel do desenho vale 1 px na tela.
 FONT_BODY = 18
 FONT_LIST_NAME = 24  # nomes da lista
+FONT_LIST_NUMBER = 18  # números da lista, menores que os nomes
 FONT_BADGE = 18  # selos de tipo
 FONT_TAG = 16  # "OCULTA"
 

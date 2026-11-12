@@ -11,6 +11,7 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 - [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
 - [x] Nome, número e tipos (em português) no topo do card
 - [x] Imagem oficial de cada Pokémon
+- [x] Mini ícone em pixel art de cada Pokémon na lista (ícones de menu da 7ª geração)
 - [x] Status base com barras: HP, Ataque, Defesa, Ataque Esp., Defesa Esp., Velocidade e Total
 - [x] Habilidades, incluindo a habilidade oculta
 - [x] Altura e peso

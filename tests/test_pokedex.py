@@ -7,6 +7,7 @@ from pokedex.cache import FileCache
 from pokedex.models import PokedexEntry
 from pokedex.pokeapi import (
     API_URL,
+    ICON_URL,
     PokeApiRepository,
     format_name,
     parse_pokemon,
@@ -347,6 +348,7 @@ class PokeApiRepositoryTest(unittest.TestCase):
             f"{API_URL}/pokemon?limit=151": json.dumps(pokedex).encode(),
             f"{API_URL}/pokemon/25": json.dumps(PIKACHU_RESPONSE).encode(),
             ARTWORK_URL: b"imagem",
+            ICON_URL.format(number=25): b"icone",
         })
 
     def test_lists_entries_numbered_in_api_order(self) -> None:
@@ -367,6 +369,13 @@ class PokeApiRepositoryTest(unittest.TestCase):
         self.assertEqual(
             self.api.requests, [f"{API_URL}/pokemon/25", ARTWORK_URL]
         )
+
+    def test_downloads_each_icon_only_once(self) -> None:
+        for _ in range(2):
+            repository = PokeApiRepository(self.cache, self.api)
+            self.assertEqual(repository.get_icon(25), b"icone")
+
+        self.assertEqual(self.api.requests, [ICON_URL.format(number=25)])
 
 
 if __name__ == "__main__":

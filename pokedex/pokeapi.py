@@ -11,6 +11,11 @@ from .models import PokedexEntry, Pokemon
 
 API_URL = "https://pokeapi.co/api/v2"
 POKEDEX_SIZE = 151
+# Ícones dos menus dos jogos (7ª geração), 40 x 30 px, usados na lista.
+ICON_URL = (
+    "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/"
+    "pokemon/versions/generation-vii/icons/{number}.png"
+)
 REQUEST_TIMEOUT_SECONDS = 10
 USER_AGENT = "PokePython (projeto de estudo)"
 # Mude sempre que o modelo Pokemon ganhar ou perder campos: assim os
@@ -97,6 +102,13 @@ class PokeApiRepository:
         return self._cache.get_or_create(
             f"artwork/{pokemon.number}.png",
             lambda: self._fetch(pokemon.artwork_url),
+        )
+
+    def get_icon(self, number: int) -> bytes:
+        """Ícone pequeno do Pokémon, para a lista."""
+        return self._cache.get_or_create(
+            f"icons/{number}.png",
+            lambda: self._fetch(ICON_URL.format(number=number)),
         )
 
     def _fetch_names(self) -> list[str]:

@@ -1,11 +1,13 @@
 """Janela da Pokédex, com visual moderno feito com CustomTkinter."""
 
+import threading
 import tkinter as tk
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from io import BytesIO
 from pathlib import Path
+from queue import Empty, Queue
 from typing import NamedTuple
 
 import customtkinter as ctk
@@ -66,7 +68,7 @@ from .theme import (
     ICON_SIZE,
     ITEM_GAP,
     LABEL_HEIGHT,
-    LIST_NUMBER_NUDGE,
+    LIST_ICON_SIZE,
     LIST_TEXT_HEIGHT,
     LIST_WIDTH,
     MIN_WINDOW_SIZE,
@@ -118,16 +120,19 @@ NO_RESULTS = "Nenhum Pokémon encontrado"
 MAX_ABILITIES = 3
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 ICON_PATH = PROJECT_DIR / "assets" / "icon.ico"
+# Miolo do ícone de 40 x 30 px, onde fica o Pokémon (LIST_ICON_SIZE).
+LIST_ICON_CROP = (6, 4, 6 + LIST_ICON_SIZE[0], 4 + LIST_ICON_SIZE[1])
 SETTINGS_PATH = PROJECT_DIR / "settings.json"  # tema escolhido
 
 
 class ListRow(NamedTuple):
-    """Linha clicável da lista: número, nome e, se houver, ♀/♂."""
+    """Linha clicável da lista: ícone, número, nome e, se houver, ♀/♂."""
 
     entry: PokedexEntry
     frame: ctk.CTkFrame
     number: ctk.CTkLabel
     name: ctk.CTkLabel
+    icon: ctk.CTkLabel
     symbol: ctk.CTkLabel | None
     search_text: str
 
@@ -223,6 +228,10 @@ class PokedexWindow:
         self._pixel_fonts = fonts_loaded and fonts_available(self._root)
         self._repository = repository
         self._executor = ThreadPoolExecutor(max_workers=1)
+        # Os ícones da lista vêm em outra fila, para não atrasar o Pokémon
+        # escolhido; _closing interrompe o download ao fechar a janela.
+        self._icon_executor = ThreadPoolExecutor(max_workers=1)
+        self._closing = threading.Event()
         self._rows: dict[int, ListRow] = {}
         self._selected: int | None = None
         self._shown: int | None = None  # Pokémon exibido nos cards
@@ -276,10 +285,8 @@ class PokedexWindow:
         if self._pixel_fonts:
             # As duas têm um peso só; um negrito falso borraria os pixels.
             title, text, weight = TITLE_FAMILY, TEXT_FAMILY, "normal"
-            list_number_size = FONT_LIST_NUMBER
         else:
             title, text, weight = None, None, "bold"
-            list_number_size = FONT_TAG  # 8 px não dá para ler na padrão
         self._hero_font = ctk.CTkFont(
             family=title, size=FONT_HERO, weight=weight
         )
@@ -287,7 +294,7 @@ class PokedexWindow:
             family=title, size=FONT_TITLE, weight=weight
         )
         self._list_number_font = ctk.CTkFont(
-            family=title, size=list_number_size, weight=weight
+            family=text, size=FONT_LIST_NUMBER, weight=weight
         )
         self._body_font = ctk.CTkFont(family=text, size=FONT_BODY)
         self._list_name_font = ctk.CTkFont(family=text, size=FONT_LIST_NAME)
@@ -299,7 +306,6 @@ class PokedexWindow:
         self._grid_fonts = (
             (self._hero_font, FONT_HERO),
             (self._title_font, FONT_TITLE),
-            (self._list_number_font, list_number_size),
         )
         scaling = ctk.ScalingTracker.get_widget_scaling(self._root)
         self._snap_title_fonts(scaling)
@@ -749,6 +755,48 @@ class PokedexWindow:
         self._no_results.grid_remove()
         self._show_count(len(entries))
         self._select(entries[0])
+        self._load_icons(entries)
+
+    def _load_icons(self, entries: Iterable[PokedexEntry]) -> None:
+        """Baixa os ícones da lista em segundo plano, em ordem.
+
+        Cada ícone aparece assim que chega. Sem conexão, para no primeiro
+        erro: as linhas ficam sem ícone até a próxima vez que o app abrir.
+        """
+        arrived: Queue[tuple[int, bytes] | None] = Queue()
+
+        def download_all() -> None:
+            for entry in entries:
+                if self._closing.is_set():
+                    break
+                try:
+                    arrived.put((entry.number, self._repository.get_icon(
+                        entry.number
+                    )))
+                except OSError:  # sem rede ou erro HTTP
+                    break
+            arrived.put(None)  # acabou
+
+        self._icon_executor.submit(download_all)
+        self._show_icons(arrived)
+
+    def _show_icons(self, arrived: Queue) -> None:
+        """Põe na lista os ícones que já chegaram e confere de novo depois."""
+        while True:
+            try:
+                item = arrived.get_nowait()
+            except Empty:
+                break
+            if item is None:
+                return
+            number, data = item
+            try:
+                image = Image.open(BytesIO(data)).convert("RGBA")
+            except OSError:
+                continue  # arquivo estragado: a linha fica sem ícone
+            image = image.crop(LIST_ICON_CROP)
+            self._rows[number].icon.configure(image=PixelImage(image, image))
+        self._root.after(CHECK_INTERVAL_MS, self._show_icons, arrived)
 
     def _show_count(self, shown: int) -> None:
         """"151 Pokémon" sem busca; "2 de 151" durante a busca."""
@@ -778,24 +826,26 @@ class PokedexWindow:
         # Textos mais baixos que a linha, para não cobrirem o anel de foco
         # desenhado na borda dela.
         inset = (ROW_HEIGHT - LIST_TEXT_HEIGHT) // 2
-        # Número pequeno e nome grande. O número começa alinhado com a
-        # lupa da busca; o cursor ▶ fica no recuo antes dele.
+        # Mini foto, número e nome. A foto começa alinhada com a lupa da
+        # busca; o cursor ▶ fica no recuo antes dela. Até o ícone chegar,
+        # o espaço fica vazio, do mesmo tamanho.
+        icon_width, icon_height = LIST_ICON_SIZE
+        icon = ctk.CTkLabel(
+            frame, text="", width=icon_width, height=icon_height
+        )
+        icon.pack(side="left", padx=(CONTROL_PADDING, ITEM_GAP // 2))
         number_text = format_number(entry.number)
         number = self._label(
             frame, number_text, self._list_number_font,
             width=NUMBER_WIDTH, height=LIST_TEXT_HEIGHT,
         )
-        number.pack(
-            side="left",
-            padx=(CONTROL_PADDING, ITEM_GAP),
-            pady=(inset + LIST_NUMBER_NUDGE, inset - LIST_NUMBER_NUDGE),
-        )
+        number.pack(side="left", padx=(0, ITEM_GAP), pady=inset)
         name_text, symbol_char = self._split_name(entry.name)
         name = self._label(
             frame, name_text, self._list_name_font, height=LIST_TEXT_HEIGHT
         )
         name.pack(side="left", pady=inset)
-        widgets = [frame, number, name]
+        widgets = [frame, icon, number, name]
         symbol = None
         if symbol_char is not None:
             symbol = ctk.CTkLabel(
@@ -817,7 +867,9 @@ class PokedexWindow:
                 "<Leave>", lambda _event, n=entry.number: self._hover(n)
             )
         search_text = f"{number_text} {entry.name}".lower()
-        return ListRow(entry, frame, number, name, symbol, search_text)
+        return ListRow(
+            entry, frame, number, name, icon, symbol, search_text
+        )
 
     def _click_row(self, entry: PokedexEntry) -> None:
         self._list.focus_set()  # as setas seguem daqui, com anel de foco
@@ -1174,5 +1226,7 @@ class PokedexWindow:
             self._status_job = None
 
     def _close(self) -> None:
+        self._closing.set()
         self._executor.shutdown(wait=False, cancel_futures=True)
+        self._icon_executor.shutdown(wait=False, cancel_futures=True)
         self._root.destroy()
