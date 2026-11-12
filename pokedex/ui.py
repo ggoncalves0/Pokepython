@@ -58,6 +58,7 @@ from .theme import (
     ELEVATED_COLOR,
     ERROR_COLOR,
     FOCUS_BORDER_WIDTH,
+    FOCUS_COLOR,
     FONT_BADGE,
     FONT_BODY,
     FONT_HERO,
@@ -114,6 +115,7 @@ STATUS_DELAY_MS = 300  # só avisa que está carregando se demorar
 RESIZE_DELAY_MS = 60  # espera a janela parar de mudar antes de redesenhar
 CONNECTION_ERROR = "Sem conexão com a PokéAPI."
 NO_RESULTS = "Nenhum Pokémon encontrado"
+NO_RESULTS_HINT = "Tente pelo número, por exemplo 25"
 # Um Pokémon tem no máximo 2 habilidades normais e 1 oculta. O card
 # reserva sempre as 3 linhas, para não mudar de altura entre Pokémon.
 MAX_ABILITIES = 3
@@ -488,12 +490,18 @@ class PokedexWindow:
         self._list._parent_canvas.bind(
             "<Configure>", self._update_scrollbar, add="+"
         )
-        self._no_results = self._label(
-            self._list, NO_RESULTS, color=MUTED_COLOR,
-            # Desconta o recuo à esquerda (alinhado com a lupa); senão a
-            # frase passa da borda da lista e é cortada.
-            wraplength=LIST_WIDTH - CONTROL_PADDING, justify="left",
-        )
+        # Aviso de busca sem resultado e, embaixo, uma dica. Começa na borda
+        # da lista, como o título e o contador: com o recuo da lupa, a
+        # frase não caberia em uma linha.
+        self._no_results = self._container(self._list)
+        for text, font, color in (
+            (NO_RESULTS, self._body_font, TEXT_COLOR),
+            (NO_RESULTS_HINT, self._tag_font, MUTED_COLOR),
+        ):
+            self._label(
+                self._no_results, text, font, color,
+                wraplength=LIST_WIDTH, justify="left",
+            ).pack(anchor="w")
         # Cursor ▶ da linha selecionada. É um só: _paint_row o coloca na
         # linha da vez, no recuo à esquerda do número.
         self._cursor = ctk.CTkLabel(self._list, text="", width=0, height=0)
@@ -851,9 +859,7 @@ class PokedexWindow:
             )
             self._rows[entry.number] = row
         # Aviso de busca sem resultado, logo abaixo das linhas (que somem).
-        self._no_results.grid(
-            row=len(entries), column=0, sticky="w", padx=CONTROL_PADDING
-        )
+        self._no_results.grid(row=len(entries), column=0, sticky="w")
         self._no_results.grid_remove()
         self._show_count(len(entries))
         self._select(entries[0])
@@ -1125,12 +1131,12 @@ class PokedexWindow:
         self._apply_filter()
 
     def _paint_search_border(self, focused: bool | None = None) -> None:
-        """Borda de 2 px na cor do tipo atual quando o campo tem foco."""
+        """Borda de 2 px, numa cor neutra, quando o campo tem foco."""
         if focused is not None:
             self._search_focused = focused
         if self._search_focused:
             self._search_box.configure(
-                border_width=FOCUS_BORDER_WIDTH, border_color=self._accent
+                border_width=FOCUS_BORDER_WIDTH, border_color=FOCUS_COLOR
             )
         else:
             self._search_box.configure(
@@ -1195,7 +1201,6 @@ class PokedexWindow:
         self._selected_background = background
         self._selected_text = text_color
         self._paint_row(pokemon.number)
-        self._paint_search_border()
 
         height_label, weight_label = self._measures
         height_label.configure(text=format_measure(pokemon.height, "m"))

@@ -21,6 +21,9 @@ CARD_COLOR: ThemeColor = ("#ffffff", "#262834")  # cards e campo de busca
 # Hover da lista, trilho das barras, divisórias.
 ELEVATED_COLOR: ThemeColor = ("#e4e7ef", "#323545")
 BORDER_COLOR: ThemeColor = ("#cdd1de", "#44475a")  # busca em repouso
+# Busca com foco: cor fixa e neutra. A do tipo (vermelho no Lutador)
+# parecia erro, ainda mais junto de "Nenhum Pokémon encontrado".
+FOCUS_COLOR: ThemeColor = ("#5b5f75", "#9a9cb0")
 TEXT_COLOR: ThemeColor = ("#1c1d26", "#f1f1f4")
 MUTED_COLOR: ThemeColor = ("#5b5f75", "#9a9cb0")  # textos secundários
 ERROR_COLOR: ThemeColor = ("#c62828", "#ff6b6b")
