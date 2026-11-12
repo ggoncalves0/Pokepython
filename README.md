@@ -6,7 +6,8 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 
 ## Funcionalidades
 
-- [x] Visual moderno em tema escuro, com o card em tom pastel da cor do tipo do Pokémon
+- [x] Visual moderno, com o card em tom pastel da cor do tipo do Pokémon
+- [x] Temas claro e escuro: segue o tema do sistema até você escolher um no botão de sol/lua, e a escolha fica salva
 - [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
 - [x] Nome, número e tipos (em português) no topo do card
 - [x] Imagem oficial de cada Pokémon
@@ -17,7 +18,7 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 - [x] A janela não trava enquanto os dados são baixados
 - [x] A arte cresce junto com a janela
 - [x] Navegação pelo teclado (veja abaixo)
-- [x] Contraste de cores conferido para os 18 tipos (WCAG AA)
+- [x] Contraste de cores conferido para os 18 tipos, nos dois temas (WCAG AA)
 
 ## Atalhos de teclado
 
@@ -62,6 +63,8 @@ Por usar os valores atuais, alguns Pokémon aparecem diferentes dos jogos antigo
 
 Os dados baixados ficam na pasta `.cache/`. Para baixar tudo de novo, é só apagar essa pasta.
 
+O tema escolhido fica no arquivo `settings.json`. Para voltar a seguir o tema do sistema, é só apagar esse arquivo.
+
 ## Testes
 
 ```bash
@@ -70,7 +73,7 @@ python -m unittest
 
 Os testes não acessam a internet: usam uma API falsa.
 
-Para conferir o contraste das cores de todos os tipos (texto com pelo menos 4,5:1 e barras com pelo menos 3:1):
+Para conferir o contraste das cores de todos os tipos e da interface, nos dois temas (texto com pelo menos 4,5:1; barras, bordas e ícones com pelo menos 3:1):
 
 ```bash
 python scripts/check_contrast.py
@@ -85,13 +88,14 @@ Pokepython/
 │   ├── models.py      # dados (Pokemon, PokedexEntry) e o contrato da fonte de dados
 │   ├── pokeapi.py     # acesso à PokéAPI e conversão das respostas
 │   ├── cache.py       # cache em disco
-│   ├── theme.py       # cores, espaçamentos, fontes e regras de cor por tipo
-│   ├── icons.py       # ícones desenhados com o Pillow (lupa e "×")
+│   ├── theme.py       # cores (claro e escuro), espaçamentos, fontes e regras de cor por tipo
+│   ├── icons.py       # ícones desenhados com o Pillow (lupa, "×", sol e lua)
+│   ├── settings.py    # salva e restaura o tema escolhido
 │   └── ui.py          # janela (CustomTkinter)
 ├── assets/
 │   └── icon.ico       # ícone da janela, em pixel art
 ├── scripts/
-│   ├── check_contrast.py  # tabela de contraste das cores de cada tipo
+│   ├── check_contrast.py  # tabela de contraste das cores, nos dois temas
 │   └── make_icon.py       # gera o assets/icon.ico a partir do desenho em icons.py
 ├── tests/             # testes automatizados
 ├── requirements.txt   # dependências do projeto

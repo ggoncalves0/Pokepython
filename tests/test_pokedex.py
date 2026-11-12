@@ -11,16 +11,23 @@ from pokedex.pokeapi import (
     format_name,
     parse_pokemon,
 )
+from pokedex.settings import DEFAULT_THEME, load_theme, save_theme
 from pokedex.theme import (
+    APP_BACKGROUND,
+    BLACK,
+    CONTRAST_STEP,
     DARK_TEXT_COLOR,
     ELEVATED_COLOR,
+    LIGHT_TEXT_COLOR,
     MIN_BAR_CONTRAST,
     MIN_TEXT_CONTRAST,
-    TEXT_COLOR,
     TYPES,
+    WHITE,
+    adjust_contrast,
     badge_text_color,
     bar_color,
     contrast_ratio,
+    hero_border_color,
     hero_number_color,
     mix_colors,
     pastel,
@@ -144,12 +151,13 @@ class DisplayTest(unittest.TestCase):
             readable_text_color(TYPES["electric"].color), DARK_TEXT_COLOR
         )
         self.assertEqual(
-            readable_text_color(TYPES["dragon"].color), TEXT_COLOR
+            readable_text_color(TYPES["dragon"].color), LIGHT_TEXT_COLOR
         )
 
 
 class ThemeTest(unittest.TestCase):
-    # Tipos escuros: só neles o selo usa texto branco e a barra é clareada.
+    # Tipos escuros: só neles o selo usa texto branco e a barra é clareada
+    # no tema escuro. No claro, são os únicos que não escurecem.
     DARK_TYPES = {"fighting", "poison", "ghost", "dragon", "dark"}
 
     def test_contrast_ratio_follows_wcag(self) -> None:
@@ -172,21 +180,83 @@ class ThemeTest(unittest.TestCase):
                     contrast_ratio(badge_text_color(style.color), style.color),
                     MIN_TEXT_CONTRAST,
                 )
+                # Barras contra o trilho, em cada tema.
+                for bar, track in zip(bar_color(style.color), ELEVATED_COLOR):
+                    self.assertGreaterEqual(
+                        contrast_ratio(bar, track), MIN_BAR_CONTRAST
+                    )
+                # No claro, o contorno separa o hero do fundo da janela.
+                light_border, _ = hero_border_color(style.color)
                 self.assertGreaterEqual(
-                    contrast_ratio(bar_color(style.color), ELEVATED_COLOR),
+                    contrast_ratio(light_border, APP_BACKGROUND[0]),
                     MIN_BAR_CONTRAST,
                 )
 
-    def test_only_dark_types_get_white_badge_text_and_lighter_bars(
+    def test_dark_types_get_white_badge_text_and_keep_light_bars(
         self,
     ) -> None:
         for name, style in TYPES.items():
             with self.subTest(tipo=name):
                 is_dark = name in self.DARK_TYPES
                 self.assertEqual(
-                    badge_text_color(style.color) == TEXT_COLOR, is_dark
+                    badge_text_color(style.color) == LIGHT_TEXT_COLOR, is_dark
                 )
-                self.assertEqual(bar_color(style.color) != style.color, is_dark)
+                light_bar, dark_bar = bar_color(style.color)
+                self.assertEqual(light_bar == style.color, is_dark)
+                self.assertEqual(dark_bar != style.color, is_dark)
+
+    def test_adjust_contrast_keeps_color_that_already_passes(self) -> None:
+        self.assertEqual(adjust_contrast("#C22E28", "#e4e7ef"), "#C22E28")
+
+    def test_adjust_contrast_stops_at_first_step_that_passes(self) -> None:
+        # Elétrico escurece no trilho claro; Dragão clareia no escuro.
+        cases = (
+            (TYPES["electric"].color, ELEVATED_COLOR[0], BLACK),
+            (TYPES["dragon"].color, ELEVATED_COLOR[1], WHITE),
+        )
+        for color, background, target in cases:
+            with self.subTest(cor=color, fundo=background):
+                adjusted = adjust_contrast(color, background)
+                self.assertGreaterEqual(
+                    contrast_ratio(adjusted, background), MIN_BAR_CONTRAST
+                )
+                step = next(
+                    s for s in range(1, 21)
+                    if mix_colors(color, target, s * CONTRAST_STEP)
+                    == adjusted
+                )
+                previous = mix_colors(color, target, (step - 1) * CONTRAST_STEP)
+                self.assertLess(
+                    contrast_ratio(previous, background), MIN_BAR_CONTRAST
+                )
+
+    def test_light_theme_darkens_electric_and_ice_by_40_percent(self) -> None:
+        for name in ("electric", "ice"):
+            color = TYPES[name].color
+            self.assertEqual(
+                bar_color(color)[0], mix_colors(color, BLACK, 0.40)
+            )
+
+
+class SettingsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_dir.cleanup)
+        self.path = Path(temporary_dir.name) / "settings.json"
+
+    def test_follows_system_without_saved_choice(self) -> None:
+        self.assertEqual(load_theme(self.path), DEFAULT_THEME)
+        self.assertEqual(DEFAULT_THEME, "system")
+
+    def test_restores_saved_theme(self) -> None:
+        save_theme(self.path, "light")
+        self.assertEqual(load_theme(self.path), "light")
+
+    def test_ignores_broken_file(self) -> None:
+        for content in ("{", "[]", '{"theme": "roxo"}', '"dark"'):
+            with self.subTest(conteudo=content):
+                self.path.write_text(content, encoding="utf-8")
+                self.assertEqual(load_theme(self.path), DEFAULT_THEME)
 
 
 class PokeApiRepositoryTest(unittest.TestCase):

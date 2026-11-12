@@ -1,8 +1,9 @@
 """Ícones desenhados com o Pillow.
 
 Emojis aparecem errado (ou nem aparecem) no Tk do Windows, então os
-ícones são desenhados aqui. Cada um é feito 4x maior e reduzido pelo
-CTkImage, o que deixa as bordas suaves em qualquer escala de tela.
+ícones são desenhados aqui. A lupa e o "×" são feitos 4x maiores e
+reduzidos pelo CTkImage, o que deixa as bordas suaves em qualquer escala
+de tela. O ícone da janela, o sol e a lua são pixel art.
 """
 
 import math
@@ -43,6 +44,44 @@ APP_ICON_PALETTE = {
     "g": "#4e7a3a",  # rostinho na tela
 }
 
+# Botão de tema. Uma cor só ("X"), passada em sun_icon() e moon_icon().
+SUN_ICON = [
+    "................",
+    ".......XX.......",
+    ".......XX.......",
+    "..XX........XX..",
+    "..XX..XXXX..XX..",
+    ".....XXXXXX.....",
+    "....XXXXXXXX....",
+    ".XX.XXXXXXXX.XX.",
+    ".XX.XXXXXXXX.XX.",
+    "....XXXXXXXX....",
+    ".....XXXXXX.....",
+    "..XX..XXXX..XX..",
+    "..XX........XX..",
+    ".......XX.......",
+    ".......XX.......",
+    "................",
+]
+MOON_ICON = [
+    "................",
+    "................",
+    ".....XX.........",
+    "....XX..........",
+    "...XXX..........",
+    "...XXX..........",
+    "..XXXX..........",
+    "..XXXXX.........",
+    "..XXXXX.........",
+    "..XXXXXXX....X..",
+    "...XXXXXXXXXXX..",
+    "...XXXXXXXXXX...",
+    "....XXXXXXXX....",
+    "......XXXX......",
+    "................",
+    "................",
+]
+
 
 def pixel_art(
     rows: list[str], palette: dict[str, str], scale: int = 1
@@ -59,6 +98,14 @@ def pixel_art(
             if char != ".":
                 image.putpixel((x, y), ImageColor.getrgb(palette[char]))
     return image.resize((width * scale, height * scale), Image.NEAREST)
+
+
+def sun_icon(color: str) -> Image.Image:
+    return pixel_art(SUN_ICON, {"X": color})
+
+
+def moon_icon(color: str) -> Image.Image:
+    return pixel_art(MOON_ICON, {"X": color})
 
 
 def _canvas(size: int) -> tuple[Image.Image, ImageDraw.ImageDraw, int, int]:

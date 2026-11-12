@@ -10,8 +10,9 @@ from typing import NamedTuple
 import customtkinter as ctk
 from PIL import Image
 
-from .icons import close_icon, search_icon
+from .icons import close_icon, moon_icon, search_icon, sun_icon
 from .models import PokedexEntry, Pokemon, PokemonRepository
+from .settings import load_theme, save_theme
 from .theme import (
     APP_BACKGROUND,
     ARTWORK_MAX_SIZE,
@@ -19,6 +20,8 @@ from .theme import (
     BAR_HEIGHT,
     BORDER_COLOR,
     BORDER_WIDTH,
+    CARD_BORDER_COLOR,
+    CARD_BORDER_WIDTH,
     CARD_COLOR,
     CARD_GAP,
     CARD_PADDING,
@@ -38,6 +41,7 @@ from .theme import (
     FONT_TAG,
     HERO_NUMBER_NUDGE,
     HERO_RADIUS,
+    ICON_BUTTON_RADIUS,
     ICON_SIZE,
     ITEM_GAP,
     LIST_WIDTH,
@@ -59,14 +63,17 @@ from .theme import (
     SIDEBAR_WIDTH,
     STAT_VALUE_WIDTH,
     TEXT_COLOR,
+    THEME_BUTTON_SIZE,
     TITLE_GAP,
     TYPES,
     WIDE_GAP,
     WINDOW_MARGIN,
     WINDOW_SIZE,
+    ThemeColor,
     TypeStyle,
     badge_text_color,
     bar_color,
+    hero_border_color,
     hero_number_color,
     pastel,
     readable_text_color,
@@ -85,7 +92,9 @@ NO_RESULTS = "Nenhum Pokémon encontrado"
 # Um Pokémon tem no máximo 2 habilidades normais e 1 oculta. O card
 # reserva sempre as 3 linhas, para não mudar de altura entre Pokémon.
 MAX_ABILITIES = 3
-ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "icon.ico"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+ICON_PATH = PROJECT_DIR / "assets" / "icon.ico"
+SETTINGS_PATH = PROJECT_DIR / "settings.json"  # tema escolhido
 
 
 class ListRow(NamedTuple):
@@ -143,11 +152,25 @@ def clear(frame: tk.Misc) -> None:
         child.destroy()
 
 
+def themed_icon(
+    draw: Callable[[str, int], Image.Image], color: ThemeColor, size: int
+) -> ctk.CTkImage:
+    """Ícone com uma versão para cada tema; o CTkImage troca sozinho."""
+    light, dark = color
+    return ctk.CTkImage(
+        light_image=draw(light, size),
+        dark_image=draw(dark, size),
+        size=(size, size),
+    )
+
+
 class PokedexWindow:
     """Janela principal: detalhes à esquerda, busca e lista à direita."""
 
     def __init__(self, repository: PokemonRepository) -> None:
-        ctk.set_appearance_mode("dark")
+        # "system" (o padrão) segue o tema do Windows, inclusive se ele
+        # mudar com o app aberto.
+        ctk.set_appearance_mode(load_theme(SETTINGS_PATH))
         self._root = ctk.CTk(fg_color=APP_BACKGROUND)
         self._repository = repository
         self._executor = ThreadPoolExecutor(max_workers=1)
@@ -155,7 +178,10 @@ class PokedexWindow:
         self._selected: int | None = None
         self._shown: int | None = None  # Pokémon exibido nos cards
         self._hovered: int | None = None  # linha sob o mouse
-        self._selected_background = ELEVATED_COLOR
+        # Fundo e texto da linha selecionada: cinza enquanto carrega, pastel
+        # depois.
+        self._selected_background: str | ThemeColor = ELEVATED_COLOR
+        self._selected_text: str | ThemeColor = TEXT_COLOR
         self._list_focused = False
         self._pending: Future | None = None
         self._count_text = ""  # "151 Pokémon", depois que a lista chega
@@ -211,13 +237,17 @@ class PokedexWindow:
         sidebar.grid_rowconfigure(3, weight=1)
         sidebar.grid_columnconfigure(0, weight=1)
 
-        # Título, busca e lista começam na mesma borda esquerda.
-        # Menor que o nome do Pokémon, para não disputar atenção com ele.
-        title = self._label(sidebar, "Pokédex", self._sidebar_title_font)
-        title.grid(
-            row=0, column=0, sticky="w",
+        # Título, busca e lista começam na mesma borda esquerda; o botão de
+        # tema termina na mesma borda direita da busca.
+        header = self._container(sidebar)
+        header.grid(
+            row=0, column=0, sticky="ew",
             padx=WINDOW_MARGIN, pady=(WINDOW_MARGIN, 0),
         )
+        # Menor que o nome do Pokémon, para não disputar atenção com ele.
+        title = self._label(header, "Pokédex", self._sidebar_title_font)
+        title.pack(side="left")
+        self._build_theme_button(header).pack(side="right")
         # Mostra quantos Pokémon há e, quando preciso, avisos de
         # carregamento ou de erro.
         self._status = self._label(
@@ -263,6 +293,29 @@ class PokedexWindow:
             wraplength=LIST_WIDTH, justify="left",
         )
 
+    def _build_theme_button(self, parent: ctk.CTkFrame) -> ctk.CTkButton:
+        """Botão que alterna entre os temas claro e escuro.
+
+        O ícone mostra para onde o clique leva: lua no tema claro, sol no
+        escuro. O CTkImage troca de versão sozinho quando o tema muda.
+        """
+        light, dark = MUTED_COLOR
+        return ctk.CTkButton(
+            parent,
+            text="",
+            image=ctk.CTkImage(
+                light_image=moon_icon(light),
+                dark_image=sun_icon(dark),
+                size=(ICON_SIZE, ICON_SIZE),
+            ),
+            width=THEME_BUTTON_SIZE,
+            height=THEME_BUTTON_SIZE,
+            corner_radius=ICON_BUTTON_RADIUS,
+            fg_color="transparent",
+            hover_color=ELEVATED_COLOR,
+            command=self._toggle_theme,
+        )
+
     def _build_search(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         """Campo de busca com lupa, borda de foco e botão para limpar.
 
@@ -285,10 +338,7 @@ class PokedexWindow:
         icon = ctk.CTkLabel(
             box,
             text="",
-            image=ctk.CTkImage(
-                search_icon(MUTED_COLOR, ICON_SIZE),
-                size=(ICON_SIZE, ICON_SIZE),
-            ),
+            image=themed_icon(search_icon, MUTED_COLOR, ICON_SIZE),
             width=ICON_SIZE,
             height=ICON_SIZE,
         )
@@ -311,13 +361,10 @@ class PokedexWindow:
         self._clear_button = ctk.CTkButton(
             box,
             text="",
-            image=ctk.CTkImage(
-                close_icon(MUTED_COLOR, CLEAR_ICON_SIZE),
-                size=(CLEAR_ICON_SIZE, CLEAR_ICON_SIZE),
-            ),
+            image=themed_icon(close_icon, MUTED_COLOR, CLEAR_ICON_SIZE),
             width=CLEAR_BUTTON_SIZE,
             height=CLEAR_BUTTON_SIZE,
-            corner_radius=CLEAR_BUTTON_SIZE // 2,
+            corner_radius=ICON_BUTTON_RADIUS,
             fg_color="transparent",
             hover_color=ELEVATED_COLOR,
             command=self._clear_search,
@@ -353,9 +400,11 @@ class PokedexWindow:
         details.grid_rowconfigure(0, weight=1)
 
         # Card em tom pastel da cor do tipo principal, com nome, número e
-        # tipos no topo.
+        # tipos no topo. O contorno aparece só no tema claro (veja
+        # hero_border_color).
         self._hero = ctk.CTkFrame(
-            details, corner_radius=HERO_RADIUS, fg_color=CARD_COLOR
+            details, corner_radius=HERO_RADIUS, fg_color=CARD_COLOR,
+            border_width=CARD_BORDER_WIDTH, border_color=CARD_BORDER_COLOR,
         )
         self._hero.grid(row=0, column=0, columnspan=2, sticky="nsew")
         header = self._container(self._hero)
@@ -509,7 +558,7 @@ class PokedexWindow:
         parent: tk.Misc,
         text: str,
         font: ctk.CTkFont | None = None,
-        color: str = TEXT_COLOR,
+        color: str | ThemeColor = TEXT_COLOR,
         **options,
     ) -> ctk.CTkLabel:
         return ctk.CTkLabel(
@@ -539,7 +588,8 @@ class PokedexWindow:
     @staticmethod
     def _card(parent: tk.Misc) -> ctk.CTkFrame:
         return ctk.CTkFrame(
-            parent, corner_radius=CARD_RADIUS, fg_color=CARD_COLOR
+            parent, corner_radius=CARD_RADIUS, fg_color=CARD_COLOR,
+            border_width=CARD_BORDER_WIDTH, border_color=CARD_BORDER_COLOR,
         )
 
     @staticmethod
@@ -650,18 +700,14 @@ class PokedexWindow:
         """
         row = self._rows[number]
         border = 0
+        background, text_color = "transparent", TEXT_COLOR
         if number == self._selected:
             background = self._selected_background
+            text_color = self._selected_text
             if self._list_focused:
                 border = FOCUS_BORDER_WIDTH
         elif number == self._hovered:
             background = ELEVATED_COLOR
-        else:
-            background = "transparent"
-        text_color = (
-            TEXT_COLOR if background == "transparent"
-            else readable_text_color(background)
-        )
         row.frame.configure(
             fg_color=background, border_width=border,
             border_color=self._accent,
@@ -777,6 +823,7 @@ class PokedexWindow:
         previous, self._selected = self._selected, entry.number
         # Cinza enquanto carrega; ao terminar, ganha o pastel do card.
         self._selected_background = ELEVATED_COLOR
+        self._selected_text = TEXT_COLOR
         if previous is not None:
             self._paint_row(previous)
         self._paint_row(entry.number)
@@ -812,7 +859,9 @@ class PokedexWindow:
         background = pastel(color)
         text_color = readable_text_color(background)
 
-        self._hero.configure(fg_color=background)
+        self._hero.configure(
+            fg_color=background, border_color=hero_border_color(color)
+        )
         self._artwork_image = image
         self._render_artwork()
         self._name.configure(text=pokemon.name, text_color=text_color)
@@ -822,6 +871,7 @@ class PokedexWindow:
         )
         self._accent = bar_color(color)
         self._selected_background = background
+        self._selected_text = text_color
         self._paint_row(pokemon.number)
         self._paint_search_border()
 
@@ -837,7 +887,7 @@ class PokedexWindow:
         stats = zip(self._stat_widgets, stat_rows(pokemon))
         for (value_label, bar), (_, value) in stats:
             value_label.configure(text=str(value))
-            bar.configure(progress_color=bar_color(color))
+            bar.configure(progress_color=self._accent)
             bar.set(bar_fraction(value))
         self._total.configure(text=str(pokemon.total))
 
@@ -852,6 +902,12 @@ class PokedexWindow:
             else:
                 tag.pack_forget()
         self._show_status(self._count_text)
+
+    def _toggle_theme(self) -> None:
+        """Troca entre claro e escuro e guarda a escolha para a próxima vez."""
+        theme = "light" if ctk.get_appearance_mode() == "Dark" else "dark"
+        ctk.set_appearance_mode(theme)
+        save_theme(SETTINGS_PATH, theme)
 
     def _set_window_icon(self) -> None:
         """Troca o ícone padrão do CustomTkinter pelo da Pokédex.
@@ -930,7 +986,9 @@ class PokedexWindow:
         else:
             on_success(result)
 
-    def _show_status(self, text: str, color: str = MUTED_COLOR) -> None:
+    def _show_status(
+        self, text: str, color: ThemeColor = MUTED_COLOR
+    ) -> None:
         """Mostra um aviso no lugar da contagem de Pokémon."""
         self._cancel_status_delay()
         self._status.configure(text=text, text_color=color)

@@ -9,20 +9,33 @@ espaçamentos à escala da tela (125%, 150%...).
 
 from typing import NamedTuple
 
-# --- Cores base (tema escuro) ---------------------------------------------
+# --- Cores base -----------------------------------------------------------
 
-APP_BACKGROUND = "#16171d"  # fundo da janela
-SIDEBAR_COLOR = "#1f2029"  # lateral com a lista
-CARD_COLOR = "#262834"  # cards e campo de busca
-ELEVATED_COLOR = "#323545"  # hover da lista, trilho das barras, divisórias
-BORDER_COLOR = "#44475a"  # borda do campo de busca em repouso
-TEXT_COLOR = "#f1f1f4"
-MUTED_COLOR = "#9a9cb0"  # textos secundários
+# Par (tema claro, tema escuro). O CustomTkinter aceita o par em qualquer
+# cor e troca sozinho quando o tema muda (ctk.set_appearance_mode).
+type ThemeColor = tuple[str, str]
+
+APP_BACKGROUND: ThemeColor = ("#eef0f5", "#16171d")  # fundo da janela
+SIDEBAR_COLOR: ThemeColor = ("#f8f9fb", "#1f2029")  # lateral com a lista
+CARD_COLOR: ThemeColor = ("#ffffff", "#262834")  # cards e campo de busca
+# Hover da lista, trilho das barras, divisórias.
+ELEVATED_COLOR: ThemeColor = ("#e4e7ef", "#323545")
+BORDER_COLOR: ThemeColor = ("#cdd1de", "#44475a")  # busca em repouso
+TEXT_COLOR: ThemeColor = ("#1c1d26", "#f1f1f4")
+MUTED_COLOR: ThemeColor = ("#5b5f75", "#9a9cb0")  # textos secundários
+ERROR_COLOR: ThemeColor = ("#c62828", "#ff6b6b")
+SCROLLBAR_COLOR: ThemeColor = ("#868a9f", "#6b6e85")
+SCROLLBAR_HOVER_COLOR: ThemeColor = ("#5b5f75", "#9a9cb0")
+# No claro, o branco dos cards quase some no fundo; a borda os separa. No
+# escuro ela tem a cor do card, ou seja, não aparece.
+CARD_BORDER_COLOR: ThemeColor = ("#dfe2ea", CARD_COLOR[1])
+
+# Iguais nos dois temas: ficam sobre o pastel ou sobre a cor do tipo, que
+# não mudam com o tema.
 DARK_TEXT_COLOR = "#1c1c1c"  # texto sobre fundos claros (pastel)
+LIGHT_TEXT_COLOR = "#f1f1f4"  # texto sobre fundos escuros (selos)
 WHITE = "#ffffff"
-ERROR_COLOR = "#ff6b6b"
-SCROLLBAR_COLOR = "#6b6e85"
-SCROLLBAR_HOVER_COLOR = "#9a9cb0"
+BLACK = "#000000"
 
 # --- Espaçamentos ---------------------------------------------------------
 
@@ -43,6 +56,9 @@ CARD_RADIUS = 18
 CONTROL_RADIUS = 10  # campo de busca
 ROW_RADIUS = 8  # linhas da lista
 PILL_RADIUS = 12  # selos de tipo
+# Botões só com ícone ("×" e tema). O CTkButton reserva o raio dos dois
+# lados do ícone; com raio maior, o botão fica mais largo que o pedido.
+ICON_BUTTON_RADIUS = 4
 
 # --- Tamanhos -------------------------------------------------------------
 
@@ -64,10 +80,12 @@ BAR_HEIGHT = 8
 ICON_SIZE = 16  # lupa da busca
 CLEAR_ICON_SIZE = 12  # "×" da busca
 CLEAR_BUTTON_SIZE = 24  # área clicável do "×"
+THEME_BUTTON_SIZE = 28  # botão de tema, da altura do título "Pokédex"
 NUMBER_WIDTH = 44  # coluna do número na lista
 STAT_VALUE_WIDTH = 36  # coluna do valor nos status
 BORDER_WIDTH = 1
 FOCUS_BORDER_WIDTH = 2
+CARD_BORDER_WIDTH = 2  # contorno dos cards, inclusive o hero
 ROW_INSET = FOCUS_BORDER_WIDTH + 1  # textos da lista longe do anel de foco
 ARTWORK_MIN_SIZE = 230  # arte no tamanho mínimo da janela
 ARTWORK_MAX_SIZE = 475  # resolução da arte oficial; maior que isso borra
@@ -85,7 +103,7 @@ FONT_TAG = 11  # "OCULTA"
 
 PASTEL_AMOUNT = 0.55  # quanto de branco entra na cor do tipo no hero
 HERO_NUMBER_AMOUNT = 0.20  # quanto do pastel entra no texto do número
-BAR_LIGHTEN_AMOUNT = 0.25  # branco somado às barras com pouco contraste
+CONTRAST_STEP = 0.05  # passo ao clarear ou escurecer uma cor
 MIN_TEXT_CONTRAST = 4.5  # WCAG AA para texto
 MIN_BAR_CONTRAST = 3.0  # WCAG AA para elementos gráficos
 
@@ -148,9 +166,28 @@ def contrast_ratio(color: str, other: str) -> float:
 def readable_text_color(background: str) -> str:
     """Texto escuro ou claro: o que tiver mais contraste com o fundo."""
     return max(
-        (DARK_TEXT_COLOR, TEXT_COLOR),
+        (DARK_TEXT_COLOR, LIGHT_TEXT_COLOR),
         key=lambda text: contrast_ratio(text, background),
     )
+
+
+def adjust_contrast(
+    color: str, background: str, minimum: float = MIN_BAR_CONTRAST
+) -> str:
+    """A cor mais próxima de `color` com pelo menos `minimum` de contraste.
+
+    Se faltar contraste, mistura branco (fundo escuro) ou preto (fundo
+    claro) em passos de 5% até chegar ao mínimo.
+    """
+    if contrast_ratio(color, background) >= minimum:
+        return color
+    target = max((WHITE, BLACK), key=lambda c: contrast_ratio(c, background))
+    steps = round(1 / CONTRAST_STEP)
+    for step in range(1, steps + 1):
+        adjusted = mix_colors(color, target, step * CONTRAST_STEP)
+        if contrast_ratio(adjusted, background) >= minimum:
+            return adjusted
+    return target  # só se o mínimo for maior que o possível
 
 
 def pastel(type_color: str) -> str:
@@ -173,8 +210,24 @@ def badge_text_color(type_color: str) -> str:
     return readable_text_color(type_color)
 
 
-def bar_color(type_color: str) -> str:
-    """Cor das barras: a do tipo, clareada se sumir contra o trilho."""
-    if contrast_ratio(type_color, ELEVATED_COLOR) >= MIN_BAR_CONTRAST:
-        return type_color
-    return mix_colors(type_color, WHITE, BAR_LIGHTEN_AMOUNT)
+def bar_color(type_color: str) -> ThemeColor:
+    """Cor das barras em cada tema: a do tipo, ajustada contra o trilho.
+
+    No escuro, os tipos escuros clareiam; no claro, os tipos claros
+    escurecem.
+    """
+    light_track, dark_track = ELEVATED_COLOR
+    return (
+        adjust_contrast(type_color, light_track),
+        adjust_contrast(type_color, dark_track),
+    )
+
+
+def hero_border_color(type_color: str) -> ThemeColor:
+    """Contorno do hero.
+
+    No claro, alguns pastéis quase somem no fundo (Elétrico fica em
+    1,06:1); o contorno usa a cor das barras. No escuro, o pastel já se
+    destaca, e o contorno tem a cor dele mesmo, ou seja, não aparece.
+    """
+    return (bar_color(type_color)[0], pastel(type_color))
