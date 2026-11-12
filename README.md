@@ -7,7 +7,7 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 ## Funcionalidades
 
 - [x] Visual no estilo 8-bit, com fontes pixeladas e o card em tom pastel da cor do tipo do Pokémon
-- [x] Temas claro e escuro: segue o tema do sistema até você escolher um no botão de sol/lua, e a escolha fica salva
+- [x] Temas claro e escuro: abre no claro e troca no botão de sol/lua; a escolha fica salva
 - [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
 - [x] Nome, número e tipos (em português) no topo do card
 - [x] Imagem oficial de cada Pokémon
@@ -66,7 +66,7 @@ Por usar os valores atuais, alguns Pokémon aparecem diferentes dos jogos antigo
 
 Os dados baixados ficam na pasta `.cache/`. Para baixar tudo de novo, é só apagar essa pasta.
 
-O tema escolhido fica no arquivo `settings.json`. Para voltar a seguir o tema do sistema, é só apagar esse arquivo.
+O tema escolhido fica no arquivo `settings.json`. Para voltar ao padrão (tema claro), é só apagar esse arquivo.
 
 ## Testes
 

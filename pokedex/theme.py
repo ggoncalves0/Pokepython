@@ -238,10 +238,12 @@ def bar_color(type_color: str) -> ThemeColor:
 
 
 def hero_border_color(type_color: str) -> ThemeColor:
-    """Contorno do hero.
+    """Contorno do hero: uma linha mais escura que o pastel, nos dois temas.
 
-    No claro, alguns pastéis quase somem no fundo (Elétrico fica em
-    1,06:1); o contorno usa a cor das barras. No escuro, o pastel já se
-    destaca, e o contorno tem a cor dele mesmo, ou seja, não aparece.
+    Usa a cor das barras do tema claro. No claro, é o contorno que separa
+    o card do fundo, onde alguns pastéis quase somem (Elétrico fica em
+    1,06:1). No escuro, o próprio pastel já se destaca, e a linha é
+    acabamento.
     """
-    return (bar_color(type_color)[0], pastel(type_color))
+    border = bar_color(type_color)[0]
+    return (border, border)

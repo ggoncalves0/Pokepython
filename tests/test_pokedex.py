@@ -333,9 +333,9 @@ class SettingsTest(unittest.TestCase):
         self.addCleanup(temporary_dir.cleanup)
         self.path = Path(temporary_dir.name) / "settings.json"
 
-    def test_follows_system_without_saved_choice(self) -> None:
+    def test_opens_light_without_saved_choice(self) -> None:
         self.assertEqual(load_theme(self.path), DEFAULT_THEME)
-        self.assertEqual(DEFAULT_THEME, "system")
+        self.assertEqual(DEFAULT_THEME, "light")
 
     def test_restores_saved_theme(self) -> None:
         save_theme(self.path, "light")

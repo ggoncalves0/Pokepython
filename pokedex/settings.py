@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Os mesmos nomes do ctk.set_appearance_mode.
 THEMES = ("system", "light", "dark")
-DEFAULT_THEME = "system"  # segue o tema do sistema operacional
+DEFAULT_THEME = "light"  # ao abrir sem uma escolha salva
 
 
 def load_theme(path: Path) -> str:
