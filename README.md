@@ -29,7 +29,8 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 | Ctrl+F | Vai para a busca |
 | Enter (na busca) | Abre o primeiro resultado |
 | Esc (na busca) | Limpa a busca |
-| Tab / Shift+Tab | Alterna o foco entre a busca e a lista |
+| Tab / Shift+Tab | Alterna o foco entre o botão de tema, a busca e a lista |
+| Enter ou espaço (no botão de tema) | Troca entre os temas claro e escuro |
 
 ## Dados
 
@@ -94,6 +95,7 @@ Pokepython/
 │   ├── icons.py       # ícones desenhados com o Pillow (lupa, "×", sol, lua, cursor, ♀ e ♂)
 │   ├── pixel.py       # fontes pixeladas e pixel art nítidos em qualquer escala de tela
 │   ├── settings.py    # salva e restaura o tema escolhido
+│   ├── tooltip.py     # dica que aparece sobre o botão de tema
 │   └── ui.py          # janela (CustomTkinter)
 ├── assets/
 │   ├── icon.ico       # ícone da janela, em pixel art

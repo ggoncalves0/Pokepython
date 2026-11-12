@@ -50,11 +50,6 @@ WIDE_GAP = 12  # entre itens que precisam respirar: nome e número
 CONTROL_PADDING = 16
 CURSOR_X = 4  # cursor ▶ a 4 px da borda da linha (o anel de foco ocupa 2)
 PILL_PADDING = 10  # recuo do texto dentro dos selos de tipo
-# Na Press Start 2P, os números ficam no alto da linha de texto. Estes
-# valores os descem: no card principal e nos cards, até a linha de base do
-# texto ao lado.
-HERO_NUMBER_NUDGE = 3
-NUMBER_NUDGE = 4
 
 # --- Cantos arredondados --------------------------------------------------
 
@@ -80,7 +75,6 @@ SCROLLBAR_WIDTH = 16
 # CTkScrollableFrame põe à direita da barra.
 SIDEBAR_WIDTH = 2 * WINDOW_MARGIN + LIST_WIDTH + SCROLLBAR_WIDTH + 1
 SEARCH_HEIGHT = 38
-LABEL_HEIGHT = 28  # altura padrão do CTkLabel: o passo das linhas nos cards
 ROW_HEIGHT = 34  # linhas da lista
 LIST_TEXT_HEIGHT = 26  # textos dentro da linha, longe do anel de foco
 ROW_GAP = 2  # entre as linhas da lista
@@ -89,11 +83,11 @@ BAR_HEIGHT = 8
 ICON_SIZE = 16  # lupa da busca
 CLEAR_ICON_SIZE = 12  # "×" da busca
 CLEAR_BUTTON_SIZE = 24  # área clicável do "×"
-THEME_BUTTON_SIZE = 28  # botão de tema, da altura do título "Pokédex"
+THEME_BUTTON_SIZE = 32  # área clicável do botão de tema
 NUMBER_WIDTH = 36  # coluna do número na lista: "#000" em 18 px
 LIST_ICON_SIZE = (28, 24)  # mini foto na lista: o miolo do ícone de 40 x 30
 CURSOR_SCALE = 2  # cursor de 8 x 14 px, a altura das maiúsculas do nome
-STAT_VALUE_WIDTH = 48  # coluna do valor nos status: "100" em 16 px
+STAT_VALUE_WIDTH = 28  # coluna do valor nos status: "100" em 18 px
 BORDER_WIDTH = 1
 FOCUS_BORDER_WIDTH = 2
 CARD_BORDER_WIDTH = 2  # contorno dos cards, inclusive o hero
@@ -105,10 +99,11 @@ ARTWORK_MAX_SIZE = 475  # resolução da arte oficial; maior que isso borra
 # Press Start 2P, nos títulos e números: só múltiplos de 8 px, a grade
 # dela. Em outras escalas de tela, veja pixel.pixel_font_size.
 FONT_HERO = 24  # nome do Pokémon
-# Número do card principal, valores dos status e das medidas, "Pokédex" e
-# títulos dos cards.
+# Número do card principal, "Pokédex" e títulos dos cards. Desenhados
+# como imagem (veja pixel.render_title), sem as franjas do ClearType.
 FONT_TITLE = 16
-# Jersey 10, no resto. Em 18 px, cada pixel do desenho vale 1 px na tela.
+# Jersey 10, no resto, inclusive nos valores (proporcional: "0,7 m" sem
+# buracos). Em 18 px, cada pixel do desenho vale 1 px na tela.
 FONT_BODY = 18
 FONT_LIST_NAME = 24  # nomes da lista
 FONT_LIST_NUMBER = 18  # números da lista, menores que os nomes

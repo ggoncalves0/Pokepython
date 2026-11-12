@@ -21,7 +21,7 @@ from .icons import (
     moon_icon,
     search_icon,
     sun_icon,
-    title_symbol,
+    pixel_art,
 )
 from .models import PokedexEntry, Pokemon, PokemonRepository
 from .pixel import (
@@ -32,8 +32,10 @@ from .pixel import (
     fonts_available,
     load_pixel_fonts,
     pixel_font_size,
+    render_title,
 )
 from .settings import load_theme, save_theme
+from .tooltip import Tooltip
 from .theme import (
     APP_BACKGROUND,
     ARTWORK_MAX_SIZE,
@@ -63,17 +65,14 @@ from .theme import (
     FONT_LIST_NUMBER,
     FONT_TAG,
     FONT_TITLE,
-    HERO_NUMBER_NUDGE,
     ICON_BUTTON_RADIUS,
     ICON_SIZE,
     ITEM_GAP,
-    LABEL_HEIGHT,
     LIST_ICON_SIZE,
     LIST_TEXT_HEIGHT,
     LIST_WIDTH,
     MIN_WINDOW_SIZE,
     MUTED_COLOR,
-    NUMBER_NUDGE,
     NUMBER_WIDTH,
     PILL_HEIGHT,
     PILL_PADDING,
@@ -123,6 +122,22 @@ ICON_PATH = PROJECT_DIR / "assets" / "icon.ico"
 # Miolo do ícone de 40 x 30 px, onde fica o Pokémon (LIST_ICON_SIZE).
 LIST_ICON_CROP = (6, 4, 6 + LIST_ICON_SIZE[0], 4 + LIST_ICON_SIZE[1])
 SETTINGS_PATH = PROJECT_DIR / "settings.json"  # tema escolhido
+
+
+class IconButton(ctk.CTkButton):
+    """CTkButton só com ícone que aceita o foco do teclado.
+
+    O CTkButton passa o foco para o rótulo do texto, que não existe num
+    botão sem texto; aqui o foco fica no próprio botão.
+    """
+
+    def focus(self) -> None:
+        tk.Frame.focus_set(self)
+
+    focus_set = focus
+
+    def focus_force(self) -> None:
+        tk.Frame.focus_force(self)
 
 
 class ListRow(NamedTuple):
@@ -250,6 +265,9 @@ class PokedexWindow:
         self._artwork_job: str | None = None
         self._status_job: str | None = None
         self._images: dict[tuple, PixelImage] = {}  # cursor, ♀ e ♂ por cor
+        # Títulos desenhados como imagem e o que cada um mostra, para
+        # redesenhar se a escala da tela mudar (veja _set_title).
+        self._titles: dict[ctk.CTkLabel, tuple] = {}
 
         self._create_fonts()
 
@@ -316,6 +334,68 @@ class PokedexWindow:
         """Mantém a Press Start 2P em múltiplos de 8 px na tela."""
         for font, size in self._grid_fonts:
             font.configure(size=pixel_font_size(size, widget_scaling))
+        for label, title in self._titles.items():
+            label.configure(image=self._title_image(*title))
+
+    def _set_title(
+        self,
+        label: ctk.CTkLabel,
+        text: str,
+        size: int,
+        color: str | ThemeColor,
+        symbol: str | None = None,
+    ) -> None:
+        """Mostra um texto da Press Start 2P como imagem, sem ClearType.
+
+        Sem as fontes pixeladas, mostra como texto comum na fonte do label.
+        """
+        if not self._pixel_fonts:
+            label.configure(text=text + (symbol or ""), text_color=color)
+            return
+        self._titles[label] = (text, size, color, symbol)
+        label.configure(image=self._title_image(text, size, color, symbol))
+
+    def _title_image(
+        self,
+        text: str,
+        size: int,
+        color: str | ThemeColor,
+        symbol: str | None,
+    ) -> ctk.CTkImage:
+        """Imagem do texto já no tamanho final da tela, nos dois temas.
+
+        O CTkImage recebe o tamanho dividido pela escala; ao multiplicar de
+        volta, ele não precisa ampliar nada e os pixels ficam intactos.
+        """
+        scaling = ctk.ScalingTracker.get_widget_scaling(self._root)
+        on_screen = round(pixel_font_size(size, scaling) * scaling)
+        light, dark = (color, color) if isinstance(color, str) else color
+        images = [
+            self._draw_title(text, on_screen, ink, symbol)
+            for ink in (light, dark)
+        ]
+        width, height = images[0].size
+        return ctk.CTkImage(
+            *images, size=(width / scaling, height / scaling)
+        )
+
+    @staticmethod
+    def _draw_title(
+        text: str, size: int, color: str, symbol: str | None
+    ) -> Image.Image:
+        """Desenha o texto e, se houver, ♀/♂ logo depois, na mesma grade."""
+        image = render_title(text, size, color)
+        if symbol is None:
+            return image
+        mark = pixel_art(
+            TITLE_SYMBOLS[symbol], {"X": color}, size // PIXEL_GRID
+        )
+        joined = Image.new(
+            "RGBA", (image.width + mark.width, image.height), (0, 0, 0, 0)
+        )
+        joined.alpha_composite(image)
+        joined.alpha_composite(mark, (image.width, 0))
+        return joined
 
     def _split_name(self, name: str) -> tuple[str, str | None]:
         """Separa ♀/♂ do nome, se a fonte em uso não os tiver."""
@@ -331,20 +411,17 @@ class PokedexWindow:
         return self._images[key]
 
     def _symbol_image(
-        self, symbol: str, color: str | ThemeColor, title: bool
+        self, symbol: str, color: str | ThemeColor
     ) -> PixelImage:
-        """♀ ou ♂ na cor do nome: no card principal (title) ou na lista."""
-        key = (symbol, color, title)
+        """♀ ou ♂ da lista, na cor do nome (desenhados para FONT_LIST_NAME).
+
+        No card principal, o símbolo vai dentro da imagem do nome.
+        """
+        key = (symbol, color)
         if key not in self._images:
-            if title:
-                self._images[key] = pixel_image(
-                    partial(title_symbol, symbol), color,
-                    FONT_HERO // PIXEL_GRID, snap=True,
-                )
-            else:  # desenhado para os nomes da lista (FONT_LIST_NAME)
-                self._images[key] = pixel_image(
-                    partial(list_symbol, symbol), color
-                )
+            self._images[key] = pixel_image(
+                partial(list_symbol, symbol), color
+            )
         return self._images[key]
 
     # --- Montagem da tela ---------------------------------------------
@@ -367,7 +444,8 @@ class PokedexWindow:
             padx=WINDOW_MARGIN, pady=(WINDOW_MARGIN, 0),
         )
         # Menor que o nome do Pokémon, para não disputar atenção com ele.
-        title = self._label(header, "Pokédex", self._title_font)
+        title = self._label(header, "", self._title_font)
+        self._set_title(title, "Pokédex", FONT_TITLE, TEXT_COLOR)
         title.pack(side="left")
         self._build_theme_button(header).pack(side="right")
         # Mostra quantos Pokémon há e, quando preciso, avisos de
@@ -429,7 +507,7 @@ class PokedexWindow:
         escuro. O CTkImage troca de versão sozinho quando o tema muda.
         """
         light, dark = MUTED_COLOR
-        return ctk.CTkButton(
+        button = IconButton(
             parent,
             text="",
             image=PixelImage(moon_icon(light), sun_icon(dark)),
@@ -438,8 +516,36 @@ class PokedexWindow:
             corner_radius=ICON_BUTTON_RADIUS,
             fg_color="transparent",
             hover_color=ELEVATED_COLOR,
+            border_color=ELEVATED_COLOR,
             command=self._toggle_theme,
         )
+        tip = Tooltip(button, self._theme_tip, self._body_font)
+        # Teclado: entra na ordem do Tab e responde a Enter e espaço. Com o
+        # foco, ganha um anel na cor do tipo e mostra a dica na hora.
+        tk.Frame.configure(button, takefocus=True)
+        for key in ("<Return>", "<KP_Enter>", "<space>"):
+            tk.Misc.bind(button, key, lambda _event: button.invoke())
+
+        def focus(focused: bool) -> None:
+            button.configure(
+                border_width=FOCUS_BORDER_WIDTH if focused else 0,
+                border_color=self._accent,
+            )
+            if focused:
+                tip.show()
+            else:
+                tip.hide()
+
+        tk.Misc.bind(button, "<FocusIn>", lambda _event: focus(True))
+        tk.Misc.bind(button, "<FocusOut>", lambda _event: focus(False))
+        return button
+
+    @staticmethod
+    def _theme_tip() -> str:
+        """Dica do botão de tema: diz para onde o clique leva."""
+        if ctk.get_appearance_mode() == "Dark":
+            return "Mudar para tema claro"
+        return "Mudar para tema escuro"
 
     def _build_search(self, parent: ctk.CTkFrame) -> ctk.CTkFrame:
         """Campo de busca com lupa, borda de foco e botão para limpar.
@@ -534,13 +640,19 @@ class PokedexWindow:
         self._hero.grid(row=0, column=0, columnspan=2, sticky="nsew")
         header = self._container(self._hero)
         header.pack(fill="x", padx=CARD_PADDING, pady=(CARD_PADDING, 0))
-        self._name = self._label(header, "", self._hero_font)
-        self._name.pack(side="left")
-        # ♀ ou ♂ em pixel art, logo depois do nome; só aparece nos Nidoran.
-        self._name_symbol = ctk.CTkLabel(header, text="", width=0, height=0)
-        self._number = self._label(header, "", self._title_font)
+        # Nome e número alinhados por baixo. Na Press Start 2P, a última
+        # linha da grade (1/8 da altura) fica vazia; o número sobe a
+        # diferença entre as duas para as linhas de base baterem.
+        self._name = self._label(
+            header, "", self._hero_font, height=FONT_HERO
+        )
+        self._name.pack(side="left", anchor="s")
+        self._number = self._label(
+            header, "", self._title_font, height=FONT_TITLE
+        )
         self._number.pack(
-            side="left", padx=WIDE_GAP, pady=(HERO_NUMBER_NUDGE, 0)
+            side="left", anchor="s", padx=WIDE_GAP,
+            pady=(0, (FONT_HERO - FONT_TITLE) // PIXEL_GRID),
         )
         self._badges = self._container(header)
         self._badges.pack(side="right")
@@ -617,10 +729,10 @@ class PokedexWindow:
                 row=row, column=0, sticky="w",
                 padx=(CARD_PADDING, WIDE_GAP), pady=(0, bottom),
             )
-            value = self._value_label(card)
+            value = self._label(card, "")
             value.grid(
                 row=row, column=1, sticky="w",
-                padx=(0, CARD_PADDING), pady=(NUMBER_NUDGE, bottom),
+                padx=(0, CARD_PADDING), pady=(0, bottom),
             )
             self._measures.append(value)
 
@@ -638,8 +750,8 @@ class PokedexWindow:
             name.grid(
                 row=row, column=0, sticky="w", padx=(CARD_PADDING, ITEM_GAP)
             )
-            value = self._value_label(card, width=STAT_VALUE_WIDTH)
-            value.grid(row=row, column=1, sticky="e", pady=(NUMBER_NUDGE, 0))
+            value = self._label(card, "", width=STAT_VALUE_WIDTH)
+            value.grid(row=row, column=1, sticky="e")
             bar = ctk.CTkProgressBar(
                 card, height=BAR_HEIGHT,
                 fg_color=ELEVATED_COLOR, progress_color=ELEVATED_COLOR,
@@ -663,33 +775,21 @@ class PokedexWindow:
         )
 
         total_row = divider_row + 1
-        # Rótulo e valor na mesma fonte: aqui não há linha de base a acertar.
-        total = self._label(card, "Total", self._title_font)
+        # Como os outros rótulos, mas na cor do texto principal.
+        total = self._label(card, "Total")
         total.grid(
             row=total_row, column=0, sticky="w",
             padx=(CARD_PADDING, ITEM_GAP), pady=(0, CARD_PADDING),
         )
-        self._total = self._label(
-            card, "", self._title_font, width=STAT_VALUE_WIDTH
-        )
+        self._total = self._label(card, "", width=STAT_VALUE_WIDTH)
         self._total.grid(
             row=total_row, column=1, sticky="e", pady=(0, CARD_PADDING)
         )
 
-    def _value_label(self, parent: tk.Misc, **options) -> ctk.CTkLabel:
-        """Valor de status ou medida, em Press Start 2P.
-
-        Fica NUMBER_NUDGE px mais baixo que o rótulo ao lado, para as linhas
-        de base baterem; no grid, use pady=(NUMBER_NUDGE, ...). Com a altura
-        reduzida na mesma medida, o passo das linhas continua o mesmo.
-        """
-        return self._label(
-            parent, "", self._title_font,
-            height=LABEL_HEIGHT - NUMBER_NUDGE, **options,
-        )
-
     def _card_title(self, card: ctk.CTkFrame, text: str) -> ctk.CTkLabel:
-        return self._label(card, text, self._title_font)
+        title = self._label(card, "", self._title_font)
+        self._set_title(title, text, FONT_TITLE, TEXT_COLOR)
+        return title
 
     def _label(
         self,
@@ -852,7 +952,7 @@ class PokedexWindow:
         if symbol_char is not None:
             symbol = ctk.CTkLabel(
                 frame, text="", width=0, height=0,
-                image=self._symbol_image(symbol_char, TEXT_COLOR, False),
+                image=self._symbol_image(symbol_char, TEXT_COLOR),
             )
             symbol.pack(side="left")
             widgets.append(symbol)
@@ -919,7 +1019,7 @@ class PokedexWindow:
         if row.symbol is not None:
             symbol = split_symbol(row.entry.name)[1]
             row.symbol.configure(
-                image=self._symbol_image(symbol, text_color, False)
+                image=self._symbol_image(symbol, text_color)
             )
 
     def _place_cursor(
@@ -1086,17 +1186,10 @@ class PokedexWindow:
         self._artwork_image = image
         self._render_artwork()
         name, symbol = self._split_name(pokemon.name)
-        self._name.configure(text=name, text_color=text_color)
-        if symbol is not None:
-            self._name_symbol.configure(
-                image=self._symbol_image(symbol, text_color, True)
-            )
-            self._name_symbol.pack(side="left", after=self._name)
-        else:
-            self._name_symbol.pack_forget()
-        self._number.configure(
-            text=format_number(pokemon.number),
-            text_color=hero_number_color(background),
+        self._set_title(self._name, name, FONT_HERO, text_color, symbol)
+        self._set_title(
+            self._number, format_number(pokemon.number), FONT_TITLE,
+            hero_number_color(background),
         )
         self._accent = bar_color(color)
         self._selected_background = background

@@ -16,13 +16,17 @@ from pokedex.icons import (
     CURSOR,
     LIST_CAP_TOP,
     LIST_LINE,
-    TITLE_LINE,
     cursor_icon,
     in_line,
     list_symbol,
-    title_symbol,
 )
-from pokedex.pixel import FONT_FILES, FONTS_DIR, pixel_font_size, pixel_scale
+from pokedex.pixel import (
+    FONT_FILES,
+    FONTS_DIR,
+    pixel_font_size,
+    pixel_scale,
+    render_title,
+)
 from pokedex.settings import DEFAULT_THEME, load_theme, save_theme
 from pokedex.theme import (
     APP_BACKGROUND,
@@ -288,6 +292,15 @@ class PixelFontTest(unittest.TestCase):
         self.assertEqual(pixel_font_size(16, 1.0), 16)
 
 
+class RenderTitleTest(unittest.TestCase):
+    def test_title_has_only_ink_or_background(self) -> None:
+        # Sem suavização: cada pixel é transparente ou da cor do texto.
+        image = render_title("Pokédex #001", 16, "#1c1d26")
+        self.assertEqual(image.height, 16)
+        alphas = {alpha for *_, alpha in image.getdata()}
+        self.assertEqual(alphas, {0, 255})
+
+
 class PixelArtTest(unittest.TestCase):
     def test_splits_symbol_from_name(self) -> None:
         self.assertEqual(split_symbol("Nidoran♀"), ("Nidoran", "♀"))
@@ -308,9 +321,6 @@ class PixelArtTest(unittest.TestCase):
         )
         for symbol in ("♀", "♂"):
             with self.subTest(simbolo=symbol):
-                self.assertEqual(
-                    title_symbol(symbol, "#000000").size, (8, TITLE_LINE)
-                )
                 image = list_symbol(symbol, "#000000")
                 self.assertEqual(image.height, LIST_LINE)
                 # O desenho começa na altura das maiúsculas.

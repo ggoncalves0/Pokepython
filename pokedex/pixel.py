@@ -8,10 +8,11 @@ próximo. As imagens em pixel art seguem a mesma regra.
 
 import tkinter
 import tkinter.font
+from functools import cache
 from pathlib import Path
 
 import customtkinter as ctk
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 FONTS_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 FONT_FILES = (
@@ -76,6 +77,29 @@ def pixel_scale(scale: int, scaling: float) -> int:
     """
     size = pixel_font_size(scale * PIXEL_GRID, scaling)
     return round(size * scaling) // PIXEL_GRID
+
+
+@cache
+def _title_font(size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(str(FONTS_DIR / FONT_FILES[0]), size)
+
+
+def render_title(text: str, size: int, color: str) -> Image.Image:
+    """Texto na Press Start 2P desenhado pelo Pillow, sem suavização.
+
+    O Tk desenha com ClearType, que deixa franjas coloridas nas bordas das
+    letras. Com fontmode "1", cada pixel é tinta ou fundo. A imagem tem
+    `size` px de altura (a fonte não desce abaixo da linha) e a largura do
+    texto; use `size` já em pixels da tela (veja pixel_font_size).
+    """
+    font = _title_font(size)
+    image = Image.new(
+        "RGBA", (max(1, round(font.getlength(text))), size), (0, 0, 0, 0)
+    )
+    draw = ImageDraw.Draw(image)
+    draw.fontmode = "1"
+    draw.text((0, 0), text, font=font, fill=color)
+    return image
 
 
 class PixelImage(ctk.CTkImage):

@@ -83,13 +83,9 @@ MOON_ICON = [
     "................",
 ]
 
-# Desenhos que ficam ao lado de letras: cada um vai numa caixa com a
-# altura de uma linha de texto e o desenho na altura das maiúsculas. Com a
-# mesma altura, o Tk alinha imagem e letras sozinho. Medidas da fonte no
-# Tk, em pixels da grade:
-# - Press Start 2P: 8 de subida e 3 de descida; maiúsculas nas 7 primeiras
-#   linhas, traço vertical de 2 px.
-TITLE_LINE = 11
+# ♀/♂ da lista ficam numa caixa com a altura de uma linha de texto e o
+# desenho na altura das maiúsculas. Com a mesma altura, o Tk alinha imagem
+# e letras sozinho. Medidas da fonte no Tk, em pixels da grade:
 # - Jersey 10 em 24 px (nomes da lista): 19 de subida e 6 de descida;
 #   maiúsculas nas linhas 6 a 18, traço de uns 2 px.
 LIST_LINE = 25
@@ -107,8 +103,9 @@ CURSOR = [
 ]
 
 # ♀ e ♂ não existem nas duas fontes; estes desenhos ficam no lugar deles.
-# Uma versão para o nome no card principal (Press Start 2P) e outra para a
-# lista (Jersey 10).
+# Uma versão para o nome no card principal (Press Start 2P: 7 linhas, a
+# altura das maiúsculas, com traço vertical de 2 px) e outra para a lista
+# (Jersey 10).
 TITLE_SYMBOLS = {
     "♀": [
         "..XXXX.",
@@ -202,13 +199,6 @@ def in_line(
 def cursor_icon(color: str) -> Image.Image:
     """▶ da linha selecionada."""
     return pixel_art(CURSOR, {"X": color})
-
-
-def title_symbol(symbol: str, color: str) -> Image.Image:
-    """♀ ou ♂ na linha da Press Start 2P (cada caractere tem 8 colunas)."""
-    return pixel_art(
-        in_line(TITLE_SYMBOLS[symbol], TITLE_LINE, right=1), {"X": color}
-    )
 
 
 def list_symbol(symbol: str, color: str) -> Image.Image:
