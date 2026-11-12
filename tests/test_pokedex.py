@@ -11,6 +11,18 @@ from pokedex.pokeapi import (
     format_name,
     parse_pokemon,
 )
+from pokedex.icons import (
+    CURSOR,
+    CURSOR_GAP,
+    TEXT_CAP_TOP,
+    TEXT_LINE,
+    TITLE_LINE,
+    cursor_icon,
+    in_line,
+    text_symbol,
+    title_symbol,
+)
+from pokedex.pixel import FONT_FILES, FONTS_DIR, pixel_font_size, pixel_scale
 from pokedex.settings import DEFAULT_THEME, load_theme, save_theme
 from pokedex.theme import (
     APP_BACKGROUND,
@@ -37,6 +49,7 @@ from pokedex.ui import (
     ability_rows,
     bar_fraction,
     format_measure,
+    split_symbol,
     stat_rows,
     type_styles,
 )
@@ -236,6 +249,71 @@ class ThemeTest(unittest.TestCase):
             self.assertEqual(
                 bar_color(color)[0], mix_colors(color, BLACK, 0.40)
             )
+
+
+class PixelFontTest(unittest.TestCase):
+    def test_font_files_are_in_assets(self) -> None:
+        for name in (*FONT_FILES, "OFL.txt"):
+            self.assertTrue((FONTS_DIR / name).is_file(), name)
+
+    def test_press_start_lands_on_multiples_of_8(self) -> None:
+        for scaling in (1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5):
+            for size in (16, 24):
+                with self.subTest(escala=scaling, tamanho=size):
+                    requested = pixel_font_size(size, scaling)
+                    # O CustomTkinter arredonda tamanho × escala.
+                    on_screen = round(requested * scaling)
+                    self.assertEqual(on_screen % 8, 0)
+                    # 250% é o único caso em que o múltiplo mais próximo
+                    # não dá para alcançar com um tamanho inteiro.
+                    limit = 12 if scaling == 2.5 else 4
+                    self.assertLessEqual(
+                        abs(on_screen - size * scaling), limit
+                    )
+
+    def test_ties_go_down_at_125_percent(self) -> None:
+        # 16 × 1,25 = 20, no meio de 16 e 24: fica em 16.
+        self.assertEqual(round(pixel_font_size(16, 1.25) * 1.25), 16)
+        self.assertEqual(round(pixel_font_size(24, 1.25) * 1.25), 32)
+
+    def test_pixel_art_follows_the_font(self) -> None:
+        for scaling in (1.0, 1.25, 1.5, 2.5):
+            for scale in (2, 3):
+                with self.subTest(escala=scaling, fator=scale):
+                    font = round(pixel_font_size(scale * 8, scaling) * scaling)
+                    self.assertEqual(pixel_scale(scale, scaling) * 8, font)
+
+    def test_keeps_size_at_100_percent(self) -> None:
+        self.assertEqual(pixel_font_size(24, 1.0), 24)
+        self.assertEqual(pixel_font_size(16, 1.0), 16)
+
+
+class PixelArtTest(unittest.TestCase):
+    def test_splits_symbol_from_name(self) -> None:
+        self.assertEqual(split_symbol("Nidoran♀"), ("Nidoran", "♀"))
+        self.assertEqual(split_symbol("Nidoran♂"), ("Nidoran", "♂"))
+        self.assertEqual(split_symbol("Mr. Mime"), ("Mr. Mime", None))
+        self.assertEqual(split_symbol(""), ("", None))
+
+    def test_in_line_pads_drawing_to_line_box(self) -> None:
+        rows = in_line(["XX", "X."], height=5, top=1, left=1, right=2)
+        self.assertEqual(
+            rows, [".....", ".XX..", ".X...", ".....", "....."]
+        )
+
+    def test_drawings_fill_a_whole_text_line(self) -> None:
+        # Com a altura da linha, o Tk alinha imagem e letras sozinho.
+        self.assertEqual(
+            cursor_icon("#000000").size,
+            (len(CURSOR[0]) + CURSOR_GAP, TITLE_LINE),
+        )
+        for symbol in ("♀", "♂"):
+            with self.subTest(simbolo=symbol):
+                self.assertEqual(title_symbol(symbol, "#000000").size, (8, 11))
+                image = text_symbol(symbol, "#000000")
+                self.assertEqual(image.height, TEXT_LINE)
+                # O desenho começa na altura das maiúsculas.
+                self.assertEqual(image.getbbox()[1], TEXT_CAP_TOP)
 
 
 class SettingsTest(unittest.TestCase):

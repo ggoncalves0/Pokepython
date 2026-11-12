@@ -45,17 +45,22 @@ CARD_PADDING = 20  # dentro de todos os cards
 TITLE_GAP = 8  # entre o título de um card e o conteúdo
 ITEM_GAP = 8  # entre itens lado a lado: selos, colunas, rótulos
 WIDE_GAP = 12  # entre itens que precisam respirar: nome e número
-CONTROL_PADDING = 12  # recuo do conteúdo na busca e nas linhas da lista
+# Recuo do conteúdo na busca e nas linhas da lista. Nas linhas, o cursor
+# ocupa parte dele, à esquerda do número.
+CONTROL_PADDING = 16
 PILL_PADDING = 10  # recuo do texto dentro dos selos de tipo
-HERO_NUMBER_NUDGE = 6  # desce o número até a linha de base do nome
+# Descem números na Press Start 2P até a linha de base do texto ao lado:
+# no card principal, a do nome; na lista e nos cards, a da Pixelify Sans.
+HERO_NUMBER_NUDGE = 3
+NUMBER_NUDGE = 2
 
 # --- Cantos arredondados --------------------------------------------------
 
-HERO_RADIUS = 24
-CARD_RADIUS = 18
-CONTROL_RADIUS = 10  # campo de busca
-ROW_RADIUS = 8  # linhas da lista
-PILL_RADIUS = 12  # selos de tipo
+# Quase retos, no estilo 8-bit.
+CARD_RADIUS = 4  # cards, inclusive o card principal
+CONTROL_RADIUS = 4  # campo de busca
+ROW_RADIUS = 4  # linhas da lista
+PILL_RADIUS = 2  # selos de tipo
 # Botões só com ícone ("×" e tema). O CTkButton reserva o raio dos dois
 # lados do ícone; com raio maior, o botão fica mais largo que o pedido.
 ICON_BUTTON_RADIUS = 4
@@ -73,7 +78,9 @@ SCROLLBAR_WIDTH = 16
 # CTkScrollableFrame põe à direita da barra.
 SIDEBAR_WIDTH = 2 * WINDOW_MARGIN + LIST_WIDTH + SCROLLBAR_WIDTH + 1
 SEARCH_HEIGHT = 38
+LABEL_HEIGHT = 28  # altura padrão do CTkLabel: o passo das linhas nos cards
 ROW_HEIGHT = 34  # linhas da lista
+LIST_TEXT_HEIGHT = 24  # textos dentro da linha, longe do anel de foco
 ROW_GAP = 2  # entre as linhas da lista
 PILL_HEIGHT = 26
 BAR_HEIGHT = 8
@@ -81,23 +88,26 @@ ICON_SIZE = 16  # lupa da busca
 CLEAR_ICON_SIZE = 12  # "×" da busca
 CLEAR_BUTTON_SIZE = 24  # área clicável do "×"
 THEME_BUTTON_SIZE = 28  # botão de tema, da altura do título "Pokédex"
-NUMBER_WIDTH = 44  # coluna do número na lista
-STAT_VALUE_WIDTH = 36  # coluna do valor nos status
+NUMBER_WIDTH = 64  # coluna do número na lista: "#000" em 16 px
+STAT_VALUE_WIDTH = 48  # coluna do valor nos status: "100" em 16 px
 BORDER_WIDTH = 1
 FOCUS_BORDER_WIDTH = 2
 CARD_BORDER_WIDTH = 2  # contorno dos cards, inclusive o hero
-ROW_INSET = FOCUS_BORDER_WIDTH + 1  # textos da lista longe do anel de foco
 ARTWORK_MIN_SIZE = 230  # arte no tamanho mínimo da janela
 ARTWORK_MAX_SIZE = 475  # resolução da arte oficial; maior que isso borra
 
 # --- Fontes (tamanho em px) -----------------------------------------------
 
-FONT_HERO = 30  # nome do Pokémon
-FONT_SIDEBAR_TITLE = 20  # "Pokédex"
-FONT_HEADING = 17  # títulos dos cards
-FONT_BODY = 14
-FONT_BADGE = 12  # selos de tipo
-FONT_TAG = 11  # "OCULTA"
+# Press Start 2P, nos títulos e números: só múltiplos de 8 px, a grade
+# dela. Em outras escalas de tela, veja pixel.pixel_font_size.
+FONT_HERO = 24  # nome do Pokémon
+# Números da Pokédex, valores dos status e das medidas, "Pokédex" e títulos
+# dos cards. Nos valores, porque o "5" e o "6" da Pixelify parecem "S" e "8".
+FONT_TITLE = 16
+# Pixelify Sans, no resto.
+FONT_BODY = 16
+FONT_BADGE = 14  # selos de tipo
+FONT_TAG = 12  # "OCULTA"
 
 # --- Regras de cor por tipo -----------------------------------------------
 

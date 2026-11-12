@@ -6,7 +6,7 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 
 ## Funcionalidades
 
-- [x] Visual moderno, com o card em tom pastel da cor do tipo do Pokémon
+- [x] Visual no estilo 8-bit, com fontes pixeladas e o card em tom pastel da cor do tipo do Pokémon
 - [x] Temas claro e escuro: segue o tema do sistema até você escolher um no botão de sol/lua, e a escolha fica salva
 - [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
 - [x] Nome, número e tipos (em português) no topo do card
@@ -42,6 +42,7 @@ Por usar os valores atuais, alguns Pokémon aparecem diferentes dos jogos antigo
 - [CustomTkinter](https://customtkinter.tomschimansky.com/): interface gráfica moderna, feita sobre o Tkinter
 - [Pillow](https://pypi.org/project/pillow/): carregamento e redimensionamento das imagens
 - [PokéAPI](https://pokeapi.co/): dados e imagens dos Pokémon
+- [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) e [Pixelify Sans](https://fonts.google.com/specimen/Pixelify+Sans): fontes pixeladas, com licença [SIL Open Font License](assets/fonts/OFL.txt)
 
 ## Como executar
 
@@ -89,11 +90,13 @@ Pokepython/
 │   ├── pokeapi.py     # acesso à PokéAPI e conversão das respostas
 │   ├── cache.py       # cache em disco
 │   ├── theme.py       # cores (claro e escuro), espaçamentos, fontes e regras de cor por tipo
-│   ├── icons.py       # ícones desenhados com o Pillow (lupa, "×", sol e lua)
+│   ├── icons.py       # ícones desenhados com o Pillow (lupa, "×", sol, lua, cursor, ♀ e ♂)
+│   ├── pixel.py       # fontes pixeladas e pixel art nítidos em qualquer escala de tela
 │   ├── settings.py    # salva e restaura o tema escolhido
 │   └── ui.py          # janela (CustomTkinter)
 ├── assets/
-│   └── icon.ico       # ícone da janela, em pixel art
+│   ├── icon.ico       # ícone da janela, em pixel art
+│   └── fonts/         # Press Start 2P e Pixelify Sans, com a licença (OFL.txt)
 ├── scripts/
 │   ├── check_contrast.py  # tabela de contraste das cores, nos dois temas
 │   └── make_icon.py       # gera o assets/icon.ico a partir do desenho em icons.py
@@ -104,4 +107,4 @@ Pokepython/
 
 ---
 
-Dados e imagens: [PokéAPI](https://pokeapi.co/). Pokémon e seus nomes são marcas registradas da Nintendo / Game Freak / The Pokémon Company. Este é um projeto de estudo, sem fins comerciais.
+Dados e imagens: [PokéAPI](https://pokeapi.co/). Fontes: Press Start 2P (CodeMan38) e Pixelify Sans (Stefie Justprince), sob a SIL Open Font License 1.1. Pokémon e seus nomes são marcas registradas da Nintendo / Game Freak / The Pokémon Company. Este é um projeto de estudo, sem fins comerciais.
