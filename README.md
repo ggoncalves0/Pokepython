@@ -1,119 +1,107 @@
-# PokePython
+# PokePython 🎮
 
-> 🚧 **Projeto em desenvolvimento**: ainda está incompleto e muda com frequência.
-
-Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com **CustomTkinter**. Os dados vêm da [PokéAPI](https://pokeapi.co/): nome, número, tipos, imagem oficial, stats base, habilidades, altura e peso.
-
-## Funcionalidades
-
-- [x] Visual no estilo 8-bit, com fontes pixeladas e o card em tom pastel da cor do tipo do Pokémon
-- [x] Temas claro e escuro: abre no claro e troca no botão de sol/lua, com o tema antigo esmaecendo sobre o novo; a escolha fica salva
-- [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
-- [x] Nome, número e tipos (em português) no topo do card
-- [x] Imagem oficial de cada Pokémon
-- [x] Mini ícone em pixel art de cada Pokémon na lista (ícones de menu da 7ª geração)
-- [x] Status base com barras: HP, Ataque, Defesa, Ataque Esp., Defesa Esp., Velocidade e Total
-- [x] Habilidades, incluindo a habilidade oculta
-- [x] Altura e peso
-- [x] Cache local: cada Pokémon é baixado uma vez só e depois funciona offline
-- [x] A janela não trava enquanto os dados são baixados
-- [x] Downloads em paralelo, com novas tentativas se a rede falhar; o Pokémon anterior e o próximo da lista já ficam baixados
-- [x] A arte cresce junto com a janela
-- [x] Navegação pelo teclado (veja abaixo)
-- [x] Contraste de cores conferido para os 18 tipos, nos dois temas (WCAG AA)
-
-## Atalhos de teclado
-
-| Tecla | O que faz |
-| --- | --- |
-| ↑ / ↓ | Seleciona o Pokémon anterior / seguinte da lista (respeita a busca) |
-| Ctrl+F | Vai para a busca |
-| Enter (na busca) | Abre o primeiro resultado |
-| Esc (na busca) | Limpa a busca |
-| Tab / Shift+Tab | Alterna o foco entre o botão de tema, a busca e a lista |
-| Enter ou espaço (no botão de tema) | Troca entre os temas claro e escuro |
-
-## Dados
-
-Os stats e os tipos são os da geração atual, os mesmos do [Pokémon Database](https://pokemondb.net/pokedex/all). Em 11/11/2026, os 151 Pokémon foram conferidos com o pokemondb.net e todos os stats, totais e tipos bateram.
-
-Por usar os valores atuais, alguns Pokémon aparecem diferentes dos jogos antigos. O Clefairy, por exemplo, aparece como tipo Fada, que só passou a existir na 6ª geração.
+Uma Pokédex de desktop com os 151 primeiros Pokémon, feita em Python com CustomTkinter, com visual 8-bit, dados da PokéAPI, busca por nome ou número, temas claro e escuro e navegação pelo teclado.
 
 ## Tecnologias
 
-- [Python 3.12+](https://www.python.org/)
-- [CustomTkinter](https://customtkinter.tomschimansky.com/): interface gráfica moderna, feita sobre o Tkinter
-- [Pillow](https://pypi.org/project/pillow/): carregamento e redimensionamento das imagens
-- [PokéAPI](https://pokeapi.co/): dados e imagens dos Pokémon
-- [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) e [Jersey 10](https://fonts.google.com/specimen/Jersey+10): fontes pixeladas, com licença [SIL Open Font License](assets/fonts/OFL.txt)
+- Python 3.12+
+- CustomTkinter
+- Pillow
+- PokéAPI
 
-## Como executar
+## Instalação
 
 1. Clone o repositório:
-   ```bash
-   git clone https://github.com/ggoncalves0/Pokepython.git
-   cd Pokepython
-   ```
+```bash
+git clone https://github.com/ggoncalves0/Pokepython.git
+cd Pokepython
+```
 
-2. Instale as dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
+2. Crie um ambiente virtual (opcional, mas recomendado):
+```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+```
 
-3. Rode o programa (na primeira vez que cada Pokémon é aberto, precisa de internet):
-   ```bash
-   python main.py
-   ```
+3. Instale as dependências:
+```bash
+pip install -r requirements.txt
+```
 
-Os dados baixados ficam na pasta `.cache/`. Para baixar tudo de novo, é só apagar essa pasta.
+4. Execute a Pokédex:
+```bash
+python main.py
+```
 
-O tema escolhido fica no arquivo `settings.json`. Para voltar ao padrão (tema claro), é só apagar esse arquivo.
+Na primeira vez que cada Pokémon é aberto, é preciso estar conectado à internet.
+
+## Recursos
+
+- Visual 8-bit, com fontes pixeladas e o card em tom pastel da cor do tipo do Pokémon
+- Lista com os 151 Pokémon da primeira geração, com um mini ícone de cada um e busca por nome ou número
+- Nome, número e tipos (em português), imagem oficial, status base com barras, habilidades (incluindo a oculta), altura e peso
+- Temas claro e escuro: abre no claro, troca no botão de sol/lua (o tema antigo esmaece sobre o novo) e a escolha fica salva
+- Cache local: cada Pokémon é baixado uma vez só e depois funciona offline
+- Downloads em segundo plano e em paralelo, com novas tentativas se a rede falhar; o Pokémon anterior e o próximo da lista já ficam baixados
+- A arte cresce junto com a janela
+- Navegação completa pelo teclado
+- Contraste de cores conferido para os 18 tipos, nos dois temas (WCAG AA)
+
+## Atalhos de teclado
+
+| Tecla | Ação |
+|---|---|
+| `↑` / `↓` | Seleciona o Pokémon anterior / seguinte da lista (respeita a busca) |
+| `Ctrl` + `F` | Vai para a busca |
+| `Enter` (na busca) | Abre o primeiro resultado |
+| `Esc` (na busca) | Limpa a busca |
+| `Tab` / `Shift` + `Tab` | Alterna o foco entre o botão de tema, a busca e a lista |
+| `Enter` ou `Espaço` (no botão de tema) | Troca entre os temas claro e escuro |
 
 ## Testes
 
 ```bash
-python -m unittest
-```
-
-Os testes não acessam a internet: usam uma API falsa.
-
-Para conferir o contraste das cores de todos os tipos e da interface, nos dois temas (texto com pelo menos 4,5:1; barras, bordas e ícones com pelo menos 3:1):
-
-```bash
-python scripts/check_contrast.py
+python -m unittest                # testes automatizados, sem acessar a internet
+python scripts/check_contrast.py  # contraste das cores de todos os tipos, nos dois temas
 ```
 
 ## Estrutura
 
 ```
 Pokepython/
-├── main.py            # ponto de entrada: monta as peças e abre a janela
+├── main.py               # ponto de entrada: monta as peças e abre a janela
 ├── pokedex/
-│   ├── models.py      # dados (Pokemon, PokedexEntry) e o contrato da fonte de dados
-│   ├── pokeapi.py     # acesso à PokéAPI e conversão das respostas
-│   ├── cache.py       # cache em disco
-│   ├── background.py  # tarefas em segundo plano, com o resultado entregue na janela
-│   ├── theme.py       # cores (claro e escuro), espaçamentos, fontes e regras de cor por tipo
-│   ├── icons.py       # ícones desenhados com o Pillow (lupa, "×", sol, lua, cursor, ♀ e ♂)
-│   ├── pixel.py       # fontes pixeladas e pixel art nítidos em qualquer escala de tela
-│   ├── settings.py    # salva e restaura o tema escolhido
-│   ├── tooltip.py     # dica que aparece sobre o botão de tema
-│   ├── pokemon_list.py  # lista de Pokémon, desenhada num canvas só
-│   ├── ctk_adapter.py   # ajustes no CustomTkinter e no Windows (cores, barra de título, transição de tema)
-│   └── ui.py          # janela (CustomTkinter)
+│   ├── models.py         # dados (Pokemon, PokedexEntry) e o contrato da fonte de dados
+│   ├── pokeapi.py        # acesso à PokéAPI e conversão das respostas
+│   ├── cache.py          # cache em disco
+│   ├── background.py     # tarefas em segundo plano, com o resultado entregue na janela
+│   ├── settings.py       # salva e restaura o tema escolhido
+│   ├── theme.py          # cores (claro e escuro), espaçamentos, fontes e regras de cor por tipo
+│   ├── icons.py          # ícones desenhados com o Pillow (lupa, "×", sol, lua, cursor, ♀ e ♂)
+│   ├── pixel.py          # fontes pixeladas e pixel art nítidos em qualquer escala de tela
+│   ├── tooltip.py        # dica que aparece sobre o botão de tema
+│   ├── pokemon_list.py   # lista de Pokémon, desenhada num canvas só
+│   ├── ctk_adapter.py    # ajustes no CustomTkinter e no Windows (cores, barra de título, troca de tema)
+│   └── ui.py             # janela principal
 ├── assets/
-│   ├── icon.ico       # ícone da janela, em pixel art
-│   └── fonts/         # Press Start 2P e Jersey 10, com a licença (OFL.txt)
+│   ├── icon.ico          # ícone da janela, em pixel art
+│   └── fonts/            # Press Start 2P e Jersey 10, com a licença (OFL.txt)
 ├── scripts/
-│   ├── benchmark_ui.py    # mede a interface e o primeiro uso (antes e depois de cada mudança)
-│   ├── check_contrast.py  # tabela de contraste das cores, nos dois temas
-│   └── make_icon.py       # gera o assets/icon.ico a partir do desenho em icons.py
-├── specs/             # diagnóstico e especificações do projeto
-├── tests/             # testes automatizados
-├── requirements.txt   # dependências do projeto
+│   ├── check_contrast.py # tabela de contraste das cores, nos dois temas
+│   └── make_icon.py      # gera o assets/icon.ico a partir do desenho em icons.py
+├── tests/                # testes automatizados
+├── requirements.txt      # dependências, com versões fixas
 └── README.md
 ```
 
----
+## Observações
 
-Dados e imagens: [PokéAPI](https://pokeapi.co/). Fontes: Press Start 2P (CodeMan38) e Jersey 10 (Sarah Cadigan-Fried), sob a SIL Open Font License 1.1. Pokémon e seus nomes são marcas registradas da Nintendo / Game Freak / The Pokémon Company. Este é um projeto de estudo, sem fins comerciais.
+- Os dados e as imagens vêm da [PokéAPI](https://pokeapi.co/). Os stats e os tipos são os da geração atual, conferidos com o [Pokémon Database](https://pokemondb.net/pokedex/all) em 11/11/2026. Por isso, alguns Pokémon aparecem diferentes dos jogos antigos: o Clefairy, por exemplo, é do tipo Fada.
+- Os dados baixados ficam na pasta `.cache/`, e o tema escolhido fica no arquivo `settings.json`, os dois na pasta do projeto. Para baixar tudo de novo, apague a pasta `.cache/`; para voltar ao tema claro, apague o `settings.json`.
+- Fontes: [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) (CodeMan38) e [Jersey 10](https://fonts.google.com/specimen/Jersey+10) (Sarah Cadigan-Fried), sob a [SIL Open Font License 1.1](assets/fonts/OFL.txt).
+- Pokémon e seus nomes são marcas registradas da Nintendo / Game Freak / The Pokémon Company.
+- Projeto criado para fins de estudo/portfólio.
+
+## 👨‍💻 Autor
+Gabriel Gonçalves de Oliveira  
+📧 ggoncalvesy03@gmail.com

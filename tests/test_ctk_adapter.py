@@ -48,7 +48,7 @@ class CtkAdapterTest(unittest.TestCase):
         return row
 
     def test_hidden_widget_keeps_old_background_until_synced(self) -> None:
-        # O bug A: a linha escondida pela busca não acompanha o tema.
+        # O bug A: um widget escondido não acompanha o tema.
         row = self.build()
         row.pack_forget()
         ctk.set_appearance_mode("dark")
@@ -62,7 +62,7 @@ class CtkAdapterTest(unittest.TestCase):
         self.assertEqual((stale, total), (0, 2))
 
     def test_sync_backgrounds_follows_color_change(self) -> None:
-        # Como o hover e a seleção: a cor da linha muda depois de criada.
+        # Como no hover: a cor do widget muda depois de ele ser criado.
         row = self.build()
         row.configure(fg_color="#e4a19e")
         ctk_adapter.sync_backgrounds(row)
@@ -137,13 +137,13 @@ class WindowCoverTest(unittest.TestCase):
 
     def test_serves_many_changes_and_is_destroyed(self) -> None:
         self.assertTrue(self.cover.show())
-        layer = self.cover._layer
+        first_layer = self.cover._layer
         self.cover.set_opacity(0.5)
         self.cover.hide()
         self.assertTrue(self.cover.show())
-        self.assertEqual(self.cover._layer, layer)  # a mesma camada
+        self.assertEqual(self.cover._layer, first_layer)
         self.cover.destroy()
-        self.assertFalse(ctypes.windll.user32.IsWindow(layer))
+        self.assertFalse(ctypes.windll.user32.IsWindow(first_layer))
 
 
 if __name__ == "__main__":

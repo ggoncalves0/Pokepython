@@ -10,12 +10,13 @@ Bug A (blocos na cor do tema de abertura). Todo widget do CustomTkinter
 uma vez só, na criação (ctk_base_class.py, linha 68), e nunca acompanha
 a troca de tema nem as mudanças de cor (linhas 104 a 108 e 122 a 130).
 Normalmente o canvas e o texto cobrem o Frame, mas um widget que volta à
-tela (linhas da lista depois da busca, barra de rolagem) às vezes não se
-repinta, e o Frame aparece. Correção, para cada widget que volta à tela:
-1. sync_backgrounds(): acerta a cor do Frame enquanto ele ainda está
-   escondido. Acertar todos os ~670 widgets a cada troca de tema custava
-   ~400 ms, porque cada mudança de cor refaz o layout do pai;
-2. repaint(): depois de voltar, pede ao Windows a repintura que o hover
+tela (o × da busca, a barra de rolagem) às vezes não se repinta, e o
+Frame aparece. Correção, para cada widget que volta à tela:
+1. reveal() acerta a cor do Frame (sync_backgrounds) enquanto ele ainda
+   está escondido, e só então o mostra. Acertar todos os widgets a cada
+   troca de tema saía caro (~400 ms com a lista antiga), porque cada
+   mudança de cor refaz o layout do pai;
+2. repaint(), depois de voltar, pede ao Windows a repintura que o hover
    fazia linha a linha no vídeo do bug.
 
 Bug C (a tela "apaga" ao trocar o tema). install() instala dois ajustes:
@@ -32,14 +33,15 @@ Troca de tema suave: WindowCover cobre a janela com uma foto dela, que
 esmaece sobre o tema novo (veja PokedexWindow._toggle_theme).
 """
 
+import contextlib
 import ctypes
 import functools
 import logging
 import sys
 import tkinter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import customtkinter as ctk
 from customtkinter.windows.widgets.appearance_mode import (
@@ -52,11 +54,17 @@ logger = logging.getLogger(__name__)
 # DwmSetWindowAttribute: modo escuro da barra de título. 20 vale a partir do
 # Windows 10 20H1; 19, nas versões anteriores.
 _DWMWA_USE_IMMERSIVE_DARK_MODE = (20, 19)
-# SetWindowPos: só repinta a moldura (SWP_FRAMECHANGED), sem mover, mudar o
-# tamanho, a ordem ou o foco da janela.
-_SWP_REPAINT_FRAME = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020
-# RedrawWindow: marca o widget e todos os filhos para repintar.
-_RDW_INVALIDATE_ALL = 0x0001 | 0x0080
+_SWP_NOSIZE = 0x0001
+_SWP_NOMOVE = 0x0002
+_SWP_NOZORDER = 0x0004
+_SWP_NOACTIVATE = 0x0010
+_SWP_FRAMECHANGED = 0x0020
+_SWP_REPAINT_FRAME_ONLY = (
+    _SWP_NOSIZE | _SWP_NOMOVE | _SWP_NOZORDER | _SWP_NOACTIVATE
+    | _SWP_FRAMECHANGED
+)
+_RDW_INVALIDATE = 0x0001
+_RDW_ALLCHILDREN = 0x0080
 
 _installed = False
 
@@ -90,7 +98,6 @@ def install() -> None:
 
 
 def _ctk_widgets(widget: tkinter.Misc) -> list[Any]:
-    """O widget e todos os descendentes que são do CustomTkinter."""
     found = []
     pending: list[Any] = [widget]
     while pending:
@@ -118,6 +125,19 @@ def sync_backgrounds(widget: tkinter.Misc) -> None:
             tkinter.Frame.configure(current, bg=color)
 
 
+def reveal(
+    widget: Any, manager: Literal["grid", "pack", "place"], **options: Any
+) -> None:
+    """Mostra de novo um widget escondido, já na cor do tema atual (bug A).
+
+    Não faz nada se ele já estiver à mostra.
+    """
+    if widget.winfo_manager():
+        return
+    sync_backgrounds(widget)
+    getattr(widget, manager)(**options)
+
+
 def stale_frame_backgrounds(widget: tkinter.Misc) -> tuple[int, int]:
     """(Frames na cor errada, widgets do CustomTkinter) no widget e filhos."""
     widgets = _ctk_widgets(widget)
@@ -137,7 +157,7 @@ def repaint(widget: tkinter.Misc) -> None:
     """
     if sys.platform.startswith("win"):
         ctypes.windll.user32.RedrawWindow(
-            widget.winfo_id(), None, None, _RDW_INVALIDATE_ALL
+            widget.winfo_id(), None, None, _RDW_INVALIDATE | _RDW_ALLCHILDREN
         )
 
 
@@ -155,7 +175,7 @@ def set_title_bar_theme(window: ctk.CTk, color_mode: str) -> None:
             if result == 0:
                 break
         ctypes.windll.user32.SetWindowPos(
-            hwnd, 0, 0, 0, 0, 0, _SWP_REPAINT_FRAME
+            hwnd, 0, 0, 0, 0, 0, _SWP_REPAINT_FRAME_ONLY
         )
     except (AttributeError, OSError):
         logger.warning(
@@ -179,16 +199,15 @@ def on_appearance_change(
     return unsubscribe
 
 
-# Capa da troca de tema (WindowCover).
 _WS_POPUP = 0x80000000
-_WS_EX_LAYERED = 0x00080000  # conteúdo entregue por UpdateLayeredWindow
-_WS_EX_TRANSPARENT = 0x00000020  # o mouse passa direto para a janela
-_WS_EX_TOOLWINDOW = 0x00000080  # fora da barra de tarefas e do Alt+Tab
-_WS_EX_NOACTIVATE = 0x08000000  # nunca recebe o foco
-_SW_SHOWNA = 8  # mostra sem ativar
+_WS_EX_LAYERED = 0x00080000
+_WS_EX_TRANSPARENT = 0x00000020
+_WS_EX_TOOLWINDOW = 0x00000080
+_WS_EX_NOACTIVATE = 0x08000000
+_SW_SHOWNA = 8
 _ULW_ALPHA = 2
-_PW_RENDERFULLCONTENT = 2  # PrintWindow: inclui o que o DWM compõe
-_DWMWA_TRANSITIONS_FORCEDISABLED = 3  # sem animação ao aparecer
+_PW_RENDERFULLCONTENT = 2
+_DWMWA_TRANSITIONS_FORCEDISABLED = 3
 
 
 class _Point(ctypes.Structure):
@@ -297,7 +316,9 @@ class WindowCover:
     def hide(self) -> None:
         """Tira a foto. A camada continua lá, transparente e vazia."""
         if self._layer is not None:
-            self._draw(1, 1, opacity=0.0)  # libera a memória da foto
+            # Um bitmap de 1 px no lugar da foto libera a memória dela.
+            with self._bitmap(1, 1) as bitmap_dc:
+                self._update_layer(bitmap_dc, 1, 1, opacity=0.0)
 
     def destroy(self) -> None:
         if self._layer is not None:
@@ -307,7 +328,13 @@ class WindowCover:
     def _show(self, width: int, height: int) -> bool:
         if self._layer is None:
             self._layer = self._create_layer()
-        return self._draw(width, height, opacity=1.0, photo=True)
+        source = self._window.winfo_id()
+        with self._bitmap(width, height) as bitmap_dc:
+            if not _win32().user32.PrintWindow(
+                source, bitmap_dc, _PW_RENDERFULLCONTENT
+            ):
+                return False
+            return self._update_layer(bitmap_dc, width, height, opacity=1.0)
 
     def _create_layer(self) -> int:
         api = _win32()
@@ -329,33 +356,31 @@ class WindowCover:
         api.user32.ShowWindow(layer, _SW_SHOWNA)
         return int(layer)
 
-    def _draw(
-        self, width: int, height: int, opacity: float, photo: bool = False
-    ) -> bool:
-        """Entrega à camada a foto da janela (ou uma tela vazia) de uma vez."""
+    @contextlib.contextmanager
+    def _bitmap(self, width: int, height: int) -> Iterator[int]:
         api = _win32()
         source = self._window.winfo_id()
         window_dc = api.user32.GetDC(source)
-        memory_dc = api.gdi32.CreateCompatibleDC(window_dc)
+        bitmap_dc = api.gdi32.CreateCompatibleDC(window_dc)
         bitmap = api.gdi32.CreateCompatibleBitmap(window_dc, width, height)
-        previous = api.gdi32.SelectObject(memory_dc, bitmap)
+        previous = api.gdi32.SelectObject(bitmap_dc, bitmap)
         try:
-            if photo and not api.user32.PrintWindow(
-                source, memory_dc, _PW_RENDERFULLCONTENT
-            ):
-                return False
-            position = _Point(
-                self._window.winfo_rootx(), self._window.winfo_rooty()
-            )
-            blend = _Blend(0, 0, round(255 * opacity), 0)
-            return bool(api.user32.UpdateLayeredWindow(
-                self._layer, None, ctypes.byref(position),
-                ctypes.byref(_Size(width, height)), memory_dc,
-                ctypes.byref(_Point(0, 0)), 0, ctypes.byref(blend),
-                _ULW_ALPHA,
-            ))
+            yield bitmap_dc
         finally:
-            api.gdi32.SelectObject(memory_dc, previous)
+            api.gdi32.SelectObject(bitmap_dc, previous)
             api.gdi32.DeleteObject(bitmap)
-            api.gdi32.DeleteDC(memory_dc)
+            api.gdi32.DeleteDC(bitmap_dc)
             api.user32.ReleaseDC(source, window_dc)
+
+    def _update_layer(
+        self, bitmap_dc: int, width: int, height: int, opacity: float
+    ) -> bool:
+        position = _Point(
+            self._window.winfo_rootx(), self._window.winfo_rooty()
+        )
+        blend = _Blend(0, 0, round(255 * opacity), 0)
+        return bool(_win32().user32.UpdateLayeredWindow(
+            self._layer, None, ctypes.byref(position),
+            ctypes.byref(_Size(width, height)), bitmap_dc,
+            ctypes.byref(_Point(0, 0)), 0, ctypes.byref(blend), _ULW_ALPHA,
+        ))

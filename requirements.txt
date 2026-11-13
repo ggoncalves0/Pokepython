@@ -1,2 +1,3 @@
-customtkinter>=6,<7
-Pillow
+# O pokedex/ctk_adapter.py depende de detalhes internos desta versão.
+customtkinter==6.0.0
+Pillow==13.0.0

@@ -21,7 +21,7 @@ from pokedex.icons import (
     LIST_CAP_TOP,
     LIST_LINE,
     cursor_icon,
-    in_line,
+    pad_to_line_box,
     list_symbol,
 )
 from pokedex.pixel import (
@@ -315,8 +315,8 @@ class PixelArtTest(unittest.TestCase):
         self.assertEqual(split_symbol("Mr. Mime"), ("Mr. Mime", None))
         self.assertEqual(split_symbol(""), ("", None))
 
-    def test_in_line_pads_drawing_to_line_box(self) -> None:
-        rows = in_line(["XX", "X."], height=5, top=1, left=1, right=2)
+    def test_pads_drawing_to_line_box(self) -> None:
+        rows = pad_to_line_box(["XX", "X."], height=5, top=1, left=1, right=2)
         self.assertEqual(
             rows, [".....", ".XX..", ".X...", ".....", "....."]
         )
@@ -498,7 +498,9 @@ class DownloadTest(unittest.TestCase):
         self.fake(*[OSError("sem rede")] * 4)
         with self.assertRaises(OSError):
             pokeapi.download("https://x/1")
-        self.assertEqual(len(self.calls), 1 + pokeapi.RETRIES)
+        self.assertEqual(
+            len(self.calls), 1 + len(pokeapi.BACKOFF_SECONDS)
+        )
 
     def test_does_not_retry_not_found(self) -> None:
         self.fake(pokeapi.DownloadError("https://x/1", 404))

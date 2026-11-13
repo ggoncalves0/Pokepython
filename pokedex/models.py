@@ -6,8 +6,6 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class PokedexEntry:
-    """Linha da lista da Pokédex."""
-
     number: int
     name: str
 
@@ -33,7 +31,6 @@ class Pokemon:
 
     @property
     def total(self) -> int:
-        """Soma dos stats base."""
         return sum(self.stats.values())
 
 

@@ -1,12 +1,12 @@
 """Lista da Pokédex desenhada num único tk.Canvas.
 
-Antes, cada linha tinha quatro widgets do CustomTkinter: 606 no total, ou
-1516 janelas do Windows. Rolar movia as 1516 janelas, e cada uma se
-repintava num momento diferente (linhas rasgadas, bug B); limpar a busca
-recriava e repintava todas, com a lista vazia por quase um segundo; e
-trocar o tema repintava uma a uma. Aqui cada linha é um punhado de itens
-do canvas (ícone, número, nome): rolar, filtrar e trocar o tema são
-operações sobre itens, que o Tk desenha de uma vez.
+Com quatro widgets do CustomTkinter por linha (606 no total, ou 1516
+janelas do Windows), rolar movia as 1516 janelas, e cada uma se repintava
+num momento diferente: as linhas apareciam rasgadas. Limpar a busca
+repintava todas, com a lista vazia por quase um segundo, e trocar o tema
+as repintava uma a uma. Aqui cada linha é um punhado de itens do canvas
+(ícone, número, nome): rolar, filtrar e trocar o tema são operações sobre
+itens, que o Tk desenha de uma vez.
 """
 
 import math
@@ -36,20 +36,23 @@ from .theme import (
     ROW_RADIUS,
     SCROLLBAR_COLOR,
     SCROLLBAR_HOVER_COLOR,
+    SCROLLBAR_RIGHT_GAP,
     SCROLLBAR_WIDTH,
     SIDEBAR_COLOR,
     TEXT_COLOR,
-    ThemeColor,
+    Color,
 )
 
 NO_RESULTS = "Nenhum Pokémon encontrado"
-# Colunas da linha, em px lógicos: cursor no recuo, ícone alinhado com a
-# lupa da busca, número e nome.
+NO_RESULTS_Y = 4
+# O ícone começa no recuo da busca, alinhado com a lupa.
 NUMBER_X = CONTROL_PADDING + LIST_ICON_SIZE[0] + ITEM_GAP // 2
 NAME_X = NUMBER_X + NUMBER_WIDTH + ITEM_GAP
-MESSAGE_Y = 4  # recuo do aviso de busca sem resultado
-
-type Color = str | ThemeColor
+# Antes do primeiro desenho o canvas mede 1 px; supõe a lista da janela
+# inicial para saber quais ícones baixar primeiro.
+INITIAL_ROWS_IN_VIEW = 16
+WINDOWS_WHEEL_DELTA = 120
+WHEEL_PIXELS_PER_NOTCH = 20
 
 
 def format_number(number: int) -> str:
@@ -57,7 +60,8 @@ def format_number(number: int) -> str:
 
 
 def resolve(color: Color) -> str:
-    """A cor no tema atual: o canvas não entende o par (claro, escuro)."""
+    """O canvas não entende o par (claro, escuro): fica a cor do tema
+    atual."""
     if isinstance(color, str):
         return color
     light, dark = color
@@ -91,20 +95,19 @@ def rounded_rect_bands(
 class _Row:
     entry: PokedexEntry
     search_text: str
-    text: str  # nome sem ♀/♂
+    name_without_symbol: str
     symbol: str | None
     tag: str
     number_item: int = 0
     name_item: int = 0
     icon_item: int = 0
     symbol_item: int | None = None
-    top: int = 0  # posição atual, em px da tela
-    shown: bool = True
+    top: int = 0
+    matches: bool = True
 
 
 class PokemonList:
-    """Lista clicável, com busca, seleção, foco e ícones que chegam aos
-    poucos. `frame` é o widget a posicionar na tela."""
+    """`frame` é o widget a posicionar na tela."""
 
     def __init__(
         self,
@@ -139,20 +142,21 @@ class PokemonList:
             fg_color="transparent", button_color=SCROLLBAR_COLOR,
             button_hover_color=SCROLLBAR_HOVER_COLOR,
         )
-        # O +1 à direita é o mesmo recuo da lista antiga (veja SIDEBAR_WIDTH).
-        self._scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 1))
+        self._scrollbar.grid(
+            row=0, column=1, sticky="ns", padx=(0, SCROLLBAR_RIGHT_GAP)
+        )
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
 
         self._rows: dict[int, _Row] = {}
-        self._order: list[int] = []  # todas, na ordem da Pokédex
-        self._shown_order: list[int] = []  # as que a busca deixou à mostra
+        self._all_numbers: list[int] = []
+        self._matching: list[int] = []
         self._content_height = 0
         self._selected: int | None = None
         self._hovered: int | None = None
         self._focused = False
         self._selection_background: Color = ELEVATED_COLOR
         self._selection_text: Color = TEXT_COLOR
-        self._accent: Color = MUTED_COLOR
+        self._ring_color: Color = MUTED_COLOR
         self._icons: dict[int, Image.Image] = {}
         self._icon_photos: dict[int, ImageTk.PhotoImage] = {}
         # O Tk apaga uma imagem quando o Python a descarta: guarda a que
@@ -161,73 +165,61 @@ class PokemonList:
 
         self._measure()
         self._create_fixed_items()
-        canvas = self._canvas
-        canvas.bind("<Configure>", self._on_resize)
-        canvas.bind("<Motion>", self._on_motion)
-        canvas.bind("<Leave>", self._on_leave)
-        canvas.bind("<Button-1>", lambda event: self.click_at(event.y))
-        canvas.bind("<MouseWheel>", self._on_wheel)
-        canvas.bind("<FocusIn>", lambda _event: self._set_focus(True))
-        canvas.bind("<FocusOut>", lambda _event: self._set_focus(False))
+        self._bind_events()
         self._unsubscribe = ctk_adapter.on_appearance_change(
             lambda _mode: self.apply_theme()
         )
-        canvas.bind("<Destroy>", self._on_destroy, add="+")
         self.apply_theme()
-
-    # --- Dados ----------------------------------------------------------
 
     @property
     def total(self) -> int:
-        return len(self._order)
+        return len(self._all_numbers)
 
     @property
     def row_pitch(self) -> int:
-        """Altura de uma linha mais o vão, em px da tela."""
         return self._pitch
 
     def entry(self, number: int) -> PokedexEntry:
         return self._rows[number].entry
 
-    def visible_numbers(self) -> list[int]:
-        """Números das linhas que a busca deixou à mostra, em ordem."""
-        return list(self._shown_order)
+    def all_numbers(self) -> list[int]:
+        return list(self._all_numbers)
+
+    def matching_numbers(self) -> list[int]:
+        return list(self._matching)
 
     def numbers_in_view(self) -> list[int]:
-        """Números das linhas que aparecem agora na área visível."""
         height = self._canvas.winfo_height()
-        if height <= 1:  # ainda não desenhada: supõe a altura da janela
-            height = self._pitch * 16
+        if height <= 1:
+            height = self._pitch * INITIAL_ROWS_IN_VIEW
         top = int(self._canvas.canvasy(0))
         first, last = top // self._pitch, (top + height) // self._pitch
-        return self._shown_order[first:last + 1]
+        return self._matching[first:last + 1]
 
     def icon_count(self) -> int:
         return len(self._icon_photos)
 
     def set_entries(self, entries: list[PokedexEntry]) -> None:
-        """Monta as linhas (de uma vez: são itens do canvas)."""
         for row in self._rows.values():
             self._canvas.delete(row.tag)
         self._rows.clear()
-        self._order = []
+        self._all_numbers = []
         for entry in entries:
-            text, symbol = self._split_name(entry.name)
+            name_without_symbol, symbol = self._split_name(entry.name)
             row = _Row(
                 entry=entry,
                 search_text=f"{format_number(entry.number)} {entry.name}"
                 .lower(),
-                text=text,
+                name_without_symbol=name_without_symbol,
                 symbol=symbol,
                 tag=f"row{entry.number}",
             )
             self._rows[entry.number] = row
-            self._order.append(entry.number)
+            self._all_numbers.append(entry.number)
             self._create_row(row)
         self._relayout()
 
     def set_icon(self, number: int, image: Image.Image) -> None:
-        """Mostra o ícone de uma linha (chegam aos poucos, em paralelo)."""
         self._icons[number] = image
         row = self._rows.get(number)
         if row is not None:
@@ -235,36 +227,30 @@ class PokemonList:
             self._icon_photos[number] = photo
             self._canvas.itemconfigure(row.icon_item, image=photo)
 
-    # --- Busca e seleção -----------------------------------------------
-
     def filter(self, query: str) -> int:
-        """Mostra só as linhas com `query` no número ou no nome."""
         for row in self._rows.values():
-            shown = query in row.search_text
-            if shown != row.shown:
-                row.shown = shown
+            matches = query in row.search_text
+            if matches != row.matches:
+                row.matches = matches
                 self._canvas.itemconfigure(
-                    row.tag, state="normal" if shown else "hidden"
+                    row.tag, state="normal" if matches else "hidden"
                 )
         self._relayout()
-        # Volta ao topo: com a lista rolada, os resultados ficariam fora
-        # da vista.
+        # Com a lista rolada, os resultados ficariam fora da vista.
         self._canvas.yview_moveto(0)
-        return len(self._shown_order)
+        return len(self._matching)
 
     def set_selection(
         self,
         number: int | None,
         background: Color,
         text: Color,
-        accent: Color,
+        ring_color: Color,
     ) -> None:
-        """Linha selecionada: fundo (cinza ao carregar, pastel depois),
-        cor do texto e cor do anel de foco."""
         previous, self._selected = self._selected, number
         self._selection_background = background
         self._selection_text = text
-        self._accent = accent
+        self._ring_color = ring_color
         if previous is not None and previous != number:
             self._paint_row_text(previous)
         if number is not None:
@@ -272,11 +258,10 @@ class PokemonList:
         self._paint_selection()
         self._paint_hover()
 
-    def scroll_to(self, number: int) -> None:
-        """Rola só o necessário para a linha ficar inteira à vista."""
+    def scroll_into_view(self, number: int) -> None:
         row = self._rows.get(number)
         height = self._canvas.winfo_height()
-        if row is None or not row.shown or height <= 1:
+        if row is None or not row.matches or height <= 1:
             return
         total = max(self._content_height, 1)
         view_top = self._canvas.canvasy(0)
@@ -287,8 +272,6 @@ class PokemonList:
             self._canvas.yview_moveto((bottom - height) / total)
 
     def click_at(self, y: int) -> None:
-        """Clique na altura `y` do canvas: seleciona a linha que estiver
-        ali e leva o foco à lista (as setas seguem daqui)."""
         self._canvas.focus_set()
         number = self._row_at(y)
         if number is not None:
@@ -297,10 +280,7 @@ class PokemonList:
     def focus_set(self) -> None:
         self._canvas.focus_set()
 
-    # --- Tema e escala --------------------------------------------------
-
     def apply_theme(self) -> None:
-        """Recolore tudo para o tema atual: poucas chamadas, um desenho."""
         canvas = self._canvas
         canvas.configure(bg=resolve(SIDEBAR_COLOR))
         canvas.itemconfigure("text", fill=resolve(TEXT_COLOR))
@@ -312,7 +292,6 @@ class PokemonList:
         self._paint_hover()
 
     def rescale(self) -> None:
-        """Refaz tudo depois de a escala da tela mudar (outro monitor)."""
         self._measure()
         self._canvas.delete("all")
         self._photos_in_use.clear()
@@ -321,21 +300,32 @@ class PokemonList:
             number: self._icon_photo(image)
             for number, image in self._icons.items()
         }
-        for number in self._order:
+        for number in self._all_numbers:
             row = self._rows[number]
             self._create_row(row)
-            if not row.shown:
+            if not row.matches:
                 self._canvas.itemconfigure(row.tag, state="hidden")
         self._relayout()
         self.apply_theme()
 
-    # --- Desenho --------------------------------------------------------
+    def _bind_events(self) -> None:
+        canvas = self._canvas
+        canvas.bind("<Configure>", self._on_resize)
+        canvas.bind("<Motion>", self._on_motion)
+        canvas.bind("<Leave>", self._on_leave)
+        canvas.bind("<Button-1>", lambda event: self.click_at(event.y))
+        canvas.bind("<MouseWheel>", self._on_wheel)
+        canvas.bind("<FocusIn>", lambda _event: self._set_focus(True))
+        canvas.bind("<FocusOut>", lambda _event: self._set_focus(False))
+        canvas.bind("<Destroy>", self._on_destroy, add="+")
 
     def _px(self, value: float) -> int:
         return round(value * self._scaling)
 
     def _measure(self) -> None:
-        self._scaling = ctk.ScalingTracker.get_widget_scaling(self.frame)
+        self._scaling: float = ctk.ScalingTracker.get_widget_scaling(
+            self.frame
+        )
         number_font, name_font, message_font = self._fonts
         self._number_font = number_font.create_scaled_tuple(self._scaling)
         self._name_font = name_font.create_scaled_tuple(self._scaling)
@@ -350,7 +340,7 @@ class PokemonList:
 
     def _create_fixed_items(self) -> None:
         self._message = self._canvas.create_text(
-            self._px(CONTROL_PADDING), self._px(MESSAGE_Y), anchor="nw",
+            self._px(CONTROL_PADDING), self._px(NO_RESULTS_Y), anchor="nw",
             text=NO_RESULTS, font=self._message_font,
             width=self._px(LIST_WIDTH - CONTROL_PADDING), state="hidden",
         )
@@ -374,13 +364,16 @@ class PokemonList:
             tags=(row.tag, "text"),
         )
         row.name_item = canvas.create_text(
-            self._px(NAME_X), middle, anchor="w", text=row.text,
-            font=self._name_font, tags=(row.tag, "text"),
+            self._px(NAME_X), middle, anchor="w",
+            text=row.name_without_symbol, font=self._name_font,
+            tags=(row.tag, "text"),
         )
         row.symbol_item = None
         if row.symbol is not None:
-            # ♀/♂ logo depois do nome (a imagem já traz o espaço).
-            x = self._px(NAME_X) + self._name_metrics.measure(row.text)
+            # A imagem do símbolo já traz o espaço antes dele.
+            x = self._px(NAME_X) + self._name_metrics.measure(
+                row.name_without_symbol
+            )
             row.symbol_item = canvas.create_image(
                 x, middle, anchor="w", tags=tags
             )
@@ -388,25 +381,24 @@ class PokemonList:
         self._paint_row_text(number)
 
     def _relayout(self) -> None:
-        """Empilha as linhas à mostra e ajusta a área de rolagem."""
         y = 0
-        self._shown_order = []
-        for number in self._order:
+        self._matching = []
+        for number in self._all_numbers:
             row = self._rows[number]
-            if not row.shown:
+            if not row.matches:
                 continue
             if row.top != y:
                 self._canvas.move(row.tag, 0, y - row.top)
                 row.top = y
-            self._shown_order.append(number)
+            self._matching.append(number)
             y += self._pitch
         self._content_height = y
         self._canvas.configure(
             scrollregion=(0, 0, self._canvas.winfo_width(), max(y, 1))
         )
-        empty = bool(self._rows) and not self._shown_order
+        no_results = bool(self._rows) and not self._matching
         self._canvas.itemconfigure(
-            self._message, state="normal" if empty else "hidden"
+            self._message, state="normal" if no_results else "hidden"
         )
         self._paint_selection()
         self._paint_hover()
@@ -416,8 +408,8 @@ class PokemonList:
         row = self._rows.get(number)
         if row is None:
             return
-        color = self._selection_text if number == self._selected else (
-            TEXT_COLOR
+        color = (
+            self._selection_text if number == self._selected else TEXT_COLOR
         )
         self._canvas.itemconfigure(row.number_item, fill=resolve(color))
         self._canvas.itemconfigure(row.name_item, fill=resolve(color))
@@ -436,38 +428,48 @@ class PokemonList:
             )
 
     def _paint_selection(self) -> None:
-        """Fundo da linha selecionada, anel de foco e cursor ▶."""
-        canvas = self._canvas
-        canvas.delete("ring", "selection")
-        row = self._rows.get(self._selected) if self._selected else None
-        if row is None or not row.shown:
-            canvas.itemconfigure(self._cursor, state="hidden")
+        self._canvas.delete("ring", "selection")
+        selected = self._selected
+        row = self._rows.get(selected) if selected is not None else None
+        if row is None or not row.matches:
+            self._canvas.itemconfigure(self._cursor, state="hidden")
             return
-        x1, radius = canvas.winfo_width(), self._px(ROW_RADIUS)
+        self._draw_selection_background(row)
+        self._place_cursor(row)
+
+    def _draw_selection_background(self, row: _Row) -> None:
+        x1, radius = self._canvas.winfo_width(), self._px(ROW_RADIUS)
         y0, y1 = row.top, row.top + self._row_height
         background = resolve(self._selection_background)
         if self._focused:
-            border = self._px(FOCUS_BORDER_WIDTH)
-            self._shape("ring", 0, y0, x1, y1, radius, resolve(self._accent))
+            ring = self._px(FOCUS_BORDER_WIDTH)
             self._shape(
-                "selection", border, y0 + border, x1 - border, y1 - border,
-                max(radius - border, 0), background,
+                "ring", 0, y0, x1, y1, radius, resolve(self._ring_color)
+            )
+            self._shape(
+                "selection", ring, y0 + ring, x1 - ring, y1 - ring,
+                max(radius - ring, 0), background,
             )
         else:
             self._shape("selection", 0, y0, x1, y1, radius, background)
-        canvas.tag_lower("selection")
-        canvas.tag_lower("ring")
-        self._set_image(self._cursor, self._cursor_image(self._selection_text))
-        canvas.itemconfigure(self._cursor, state="normal")
-        canvas.coords(self._cursor, self._px(CURSOR_X), y0 + self._center)
-        canvas.tag_raise(self._cursor)
+        self._canvas.tag_lower("selection")
+        self._canvas.tag_lower("ring")
+
+    def _place_cursor(self, row: _Row) -> None:
+        cursor = self._cursor
+        self._set_image(cursor, self._cursor_image(self._selection_text))
+        self._canvas.itemconfigure(cursor, state="normal")
+        self._canvas.coords(
+            cursor, self._px(CURSOR_X), row.top + self._center
+        )
+        self._canvas.tag_raise(cursor)
 
     def _paint_hover(self) -> None:
         canvas = self._canvas
         canvas.delete("hover")
         number = self._hovered
         row = self._rows.get(number) if number is not None else None
-        if row is None or not row.shown or number == self._selected:
+        if row is None or not row.matches or number == self._selected:
             return
         self._shape(
             "hover", 0, row.top, canvas.winfo_width(),
@@ -477,40 +479,35 @@ class PokemonList:
         canvas.tag_lower("hover")
 
     def _set_image(self, item: int, image: PixelImage) -> None:
-        """Mostra `image` no item, na versão do tema e da escala atuais."""
         mode = "dark" if ctk.get_appearance_mode() == "Dark" else "light"
         photo = image.create_scaled_photo_image(self._scaling, mode)
         self._photos_in_use[item] = photo
         self._canvas.itemconfigure(item, image=photo)
 
     def _icon_photo(self, image: Image.Image) -> ImageTk.PhotoImage:
-        if self._scaling != 1:  # pixel art: amplia sem borrar
+        if self._scaling != 1:  # pixel art: NEAREST amplia sem borrar
             size = (self._px(image.width), self._px(image.height))
             image = image.resize(size, Image.Resampling.NEAREST)
         return ImageTk.PhotoImage(image)
 
     def _update_scrollbar(self) -> None:
-        """Mostra a barra de rolagem só quando a lista não cabe inteira."""
         height = self._canvas.winfo_height()
         fits = height > 1 and self._content_height <= height
         if fits and self._scrollbar.winfo_manager():
             self._scrollbar.grid_remove()
         elif not fits and not self._scrollbar.winfo_manager():
-            # Ao voltar, a barra vinha na cor do tema de abertura e às vezes
-            # não se repintava (bug A; veja ctk_adapter).
-            ctk_adapter.sync_backgrounds(self._scrollbar)
-            self._scrollbar.grid()
+            # Ao voltar, a barra às vezes não se repintava (veja
+            # ctk_adapter).
+            ctk_adapter.reveal(self._scrollbar, "grid")
             self.frame.after_idle(ctk_adapter.repaint, self._scrollbar)
-
-    # --- Eventos --------------------------------------------------------
 
     def _row_at(self, y: int) -> int | None:
         index, offset = divmod(int(self._canvas.canvasy(y)), self._pitch)
         if offset >= self._row_height or not (
-            0 <= index < len(self._shown_order)
+            0 <= index < len(self._matching)
         ):
             return None
-        return self._shown_order[index]
+        return self._matching[index]
 
     def _on_resize(self, _event: tk.Event) -> None:
         width = self._canvas.winfo_width()
@@ -526,7 +523,7 @@ class PokemonList:
         if number != self._hovered:
             self._hovered = number
             self._paint_hover()
-            self._canvas.configure(cursor="hand2" if number else "")
+            self._canvas.configure(cursor="" if number is None else "hand2")
 
     def _on_leave(self, _event: tk.Event) -> None:
         if self._hovered is not None:
@@ -536,8 +533,10 @@ class PokemonList:
 
     def _on_wheel(self, event: tk.Event) -> None:
         if self._content_height > self._canvas.winfo_height():
-            # A mesma velocidade da lista antiga (CTkScrollableFrame).
-            self._canvas.yview_scroll(-int(event.delta / 6), "units")
+            pixels = -round(
+                event.delta * WHEEL_PIXELS_PER_NOTCH / WINDOWS_WHEEL_DELTA
+            )
+            self._canvas.yview_scroll(pixels, "units")
 
     def _set_focus(self, focused: bool) -> None:
         self._focused = focused

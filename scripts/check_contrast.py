@@ -48,14 +48,13 @@ from pokedex.theme import (  # noqa: E402
     readable_text_color,
 )
 
-THEMES = (("claro", 0), ("escuro", 1))  # nome e posição no par de cores
+THEMES = (("claro", 0), ("escuro", 1))
 
 TYPE_COLUMNS = (
     ("Tipo", 10), ("Cor", 8), ("Pastel", 9), ("Nome", 7), ("Número", 8),
     ("Selo", 14), ("Barra", 32), ("Hero x fundo", 14),
 )
 
-# Cor, fundo, mínimo e onde aparece. Cada cor é o par (claro, escuro).
 INTERFACE_CHECKS = (
     ("Texto", TEXT_COLOR, SIDEBAR_COLOR, MIN_TEXT_CONTRAST,
      "título e lista"),

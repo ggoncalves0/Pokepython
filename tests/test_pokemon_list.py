@@ -88,11 +88,11 @@ class PokemonListTest(unittest.TestCase):
 
     def test_filter_by_name_or_number(self) -> None:
         self.assertEqual(self.list.filter("char"), 2)
-        self.assertEqual(self.list.visible_numbers(), [4, 5])
+        self.assertEqual(self.list.matching_numbers(), [4, 5])
         self.assertEqual(self.list.filter("#025"), 1)
         self.assertEqual(self.list.filter("xyz"), 0)
         self.assertEqual(self.list.filter(""), 5)
-        self.assertEqual(self.list.visible_numbers(), [1, 4, 5, 29, 25])
+        self.assertEqual(self.list.matching_numbers(), [1, 4, 5, 29, 25])
 
     def test_click_selects_row_under_pointer(self) -> None:
         self.list.filter("char")

@@ -19,16 +19,14 @@ FONT_FILES = (
     "PressStart2P-Regular.ttf",
     "Jersey10-Regular.ttf",
 )
-TITLE_FAMILY = "Press Start 2P"  # títulos e números
-TEXT_FAMILY = "Jersey 10"  # o resto; só tem um peso, que já parece negrito
-PIXEL_GRID = 8  # grade da Press Start 2P, em px
+TITLE_FAMILY = "Press Start 2P"
+TEXT_FAMILY = "Jersey 10"  # só tem um peso, que já parece negrito
+PIXEL_GRID = 8
 
 
 def load_pixel_fonts() -> bool:
-    """Registra as fontes de assets/fonts só para este programa.
-
-    Precisa vir antes de criar os widgets. Devolve False se alguma falhar.
-    """
+    """Só para este programa, sem instalar no Windows. Precisa vir antes
+    de criar os widgets."""
     return all(
         ctk.FontManager.load_font(str(FONTS_DIR / name))
         for name in FONT_FILES
@@ -36,7 +34,7 @@ def load_pixel_fonts() -> bool:
 
 
 def fonts_available(root: tkinter.Misc) -> bool:
-    """Confere se o Tk achou as fontes (se não acha, ele usa outra)."""
+    """Se o Tk não acha uma fonte, ele usa outra sem avisar."""
     return all(
         tkinter.font.Font(root, family=family).actual("family") == family
         for family in (TITLE_FAMILY, TEXT_FAMILY)
@@ -135,11 +133,14 @@ class PixelImage(ctk.CTkImage):
         else:
             size = self._get_scaled_size(widget_scaling)
         dark = appearance_mode == "dark"
-        cache = (
+        photos = (
             self._scaled_dark_photo_images if dark
             else self._scaled_light_photo_images
         )
-        if size not in cache:
+        if size not in photos:
             image = self._dark_image if dark else self._light_image
-            cache[size] = ImageTk.PhotoImage(image.resize(size, Image.NEAREST))
-        return cache[size]
+            photos[size] = ImageTk.PhotoImage(
+                image.resize(size, Image.Resampling.NEAREST)
+            )
+        photo: ImageTk.PhotoImage = photos[size]
+        return photo

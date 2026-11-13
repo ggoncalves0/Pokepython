@@ -17,20 +17,17 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://pokeapi.co/api/v2"
 POKEDEX_SIZE = 151
-# Ícones dos menus dos jogos (7ª geração), 40 x 30 px, usados na lista.
 ICON_URL = (
     "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/"
     "pokemon/versions/generation-vii/icons/{number}.png"
 )
 REQUEST_TIMEOUT_SECONDS = 10
 USER_AGENT = "PokePython (projeto de estudo)"
-# Novas tentativas depois de uma falha de rede ou de servidor, com espera
-# crescente entre elas.
-RETRIES = 3
 BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 # Política de uso justo da PokéAPI: no máximo 6 pedidos ao mesmo tempo.
 MAX_CONNECTIONS = 6
 MAX_REDIRECTS = 3
+REDIRECT_STATUSES = (301, 302, 303, 307, 308)
 PNG_SIGNATURE = bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10])
 # Mude sempre que o modelo Pokemon ganhar ou perder campos: assim os
 # arquivos antigos do cache, sem os campos novos, deixam de ser lidos.
@@ -46,14 +43,14 @@ SPECIAL_NAMES = {
 
 
 class DownloadError(OSError):
-    """Resposta HTTP com erro (404, 500...)."""
-
     def __init__(self, url: str, status: int) -> None:
         super().__init__(f"HTTP {status} em {url}")
         self.status = status
 
 
-_connections = threading.local()  # uma conexão por thread e por servidor
+# As conexões do http.client não podem ser usadas por duas threads ao
+# mesmo tempo: cada thread guarda as suas, uma por servidor.
+_connections = threading.local()
 _slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
 
 
@@ -74,62 +71,65 @@ def _drop_connection(host: str) -> None:
         connection.close()
 
 
+def _request(url: str) -> tuple[int, bytes, str | None]:
+    parts = urllib.parse.urlsplit(url)
+    path = parts.path + (f"?{parts.query}" if parts.query else "")
+    connection = _connection(parts.netloc)
+    try:
+        connection.request("GET", path, headers={"User-Agent": USER_AGENT})
+        response = connection.getresponse()
+        body = response.read()
+    except (OSError, http.client.HTTPException) as error:
+        # Conexão caiu ou o servidor a fechou: abre outra na próxima.
+        _drop_connection(parts.netloc)
+        raise OSError(f"Falha de rede em {url}: {error}") from error
+    return response.status, body, response.getheader("Location")
+
+
 def _get_once(url: str) -> bytes:
-    """Um pedido GET, reaproveitando a conexão desta thread com o servidor."""
-    for _ in range(MAX_REDIRECTS + 1):
-        parts = urllib.parse.urlsplit(url)
-        path = parts.path + (f"?{parts.query}" if parts.query else "")
-        connection = _connection(parts.netloc)
-        try:
-            connection.request("GET", path, headers={"User-Agent": USER_AGENT})
-            response = connection.getresponse()
-            body = response.read()
-        except (OSError, http.client.HTTPException) as error:
-            # Conexão caiu ou o servidor a fechou: abre outra na próxima.
-            _drop_connection(parts.netloc)
-            raise OSError(f"Falha de rede em {url}: {error}") from error
-        if response.status in (301, 302, 303, 307, 308):
-            url = urllib.parse.urljoin(url, response.getheader("Location"))
+    redirects = 0
+    while True:
+        status, body, location = _request(url)
+        if status in REDIRECT_STATUSES and redirects < MAX_REDIRECTS:
+            url = urllib.parse.urljoin(url, location)
+            redirects += 1
             continue
-        if response.status != 200:
-            raise DownloadError(url, response.status)
+        if status != 200:
+            raise DownloadError(url, status)
         return body
-    raise DownloadError(url, 310)
+
+
+def _get_once_within_limit(url: str) -> bytes:
+    with _slots:
+        return _get_once(url)
 
 
 def _worth_retrying(error: OSError) -> bool:
-    """Falha de rede ou de servidor: vale tentar de novo. 404 e outros
-    erros do pedido, não."""
+    # Um erro do pedido (404 e os outros 4xx) não muda tentando de novo;
+    # o 429 só pede para esperar.
     if isinstance(error, DownloadError):
         return error.status >= 500 or error.status == 429
     return True
 
 
 def download(url: str) -> bytes:
-    """Baixa o conteúdo de uma URL.
-
-    Reaproveita conexões, tem timeout e User-Agent, limita os pedidos
-    simultâneos e tenta de novo até RETRIES vezes, com espera crescente.
-    """
-    for attempt in range(RETRIES + 1):
+    for wait in BACKOFF_SECONDS:
         try:
-            with _slots:
-                return _get_once(url)
+            return _get_once_within_limit(url)
         except OSError as error:
-            if attempt == RETRIES or not _worth_retrying(error):
+            if not _worth_retrying(error):
                 raise
-            logger.info("Tentando de novo (%d): %s", attempt + 1, error)
-            time.sleep(BACKOFF_SECONDS[attempt])
-    raise AssertionError("inalcançável")
+            logger.info("Tentando de novo em %.1f s: %s", wait, error)
+            time.sleep(wait)
+    return _get_once_within_limit(url)
 
 
 def format_name(api_name: str) -> str:
-    """Converte um nome da API: "lightning-rod" vira "Lightning Rod"."""
     return SPECIAL_NAMES.get(api_name, api_name.replace("-", " ").title())
 
 
 def parse_pokemon(data: dict[str, Any]) -> Pokemon:
-    """Converte a resposta de /pokemon/{número} no modelo Pokemon."""
+    """`data` é a resposta de /pokemon/{número}."""
     abilities = []
     hidden_ability = None
     for item in data["abilities"]:
@@ -156,12 +156,21 @@ def parse_pokemon(data: dict[str, Any]) -> Pokemon:
     )
 
 
+def _require_png(content: bytes, source: str) -> bytes:
+    if not content.startswith(PNG_SIGNATURE):
+        raise ValueError(f"{source} não é uma imagem PNG.")
+    return content
+
+
+def _as_json(create: Callable[[], Any]) -> Callable[[], bytes]:
+    return lambda: json.dumps(create(), ensure_ascii=False).encode("utf-8")
+
+
 class PokeApiRepository:
     """Busca os Pokémon na PokéAPI e guarda em cache tudo o que baixa.
 
     O cache atende à política de uso da API ("cache resources locally")
-    e permite usar offline os Pokémon que já foram vistos. Um item
-    corrompido no cache é apagado e baixado de novo.
+    e permite usar offline os Pokémon que já foram vistos.
     """
 
     def __init__(
@@ -171,25 +180,22 @@ class PokeApiRepository:
         self._fetch = fetch
 
     def list_entries(self) -> list[PokedexEntry]:
-        names = self._cached_json("pokedex.json", self._fetch_names)
+        names: list[str] = self._cached(
+            "pokedex.json", _as_json(self._fetch_names), json.loads
+        )
         return [
             PokedexEntry(number, name)
             for number, name in enumerate(names, start=1)
         ]
 
     def get_pokemon(self, number: int) -> Pokemon:
-        name = f"{POKEMON_CACHE_DIR}/{number}.json"
-
-        def fetch() -> dict[str, Any]:
-            return asdict(self._fetch_pokemon(number))
-
-        try:
-            return Pokemon(**self._cached_json(name, fetch))
-        except (TypeError, KeyError):
-            # Item de uma versão antiga do modelo: baixa de novo.
-            logger.warning("Item %s fora do formato; baixando de novo.", name)
-            self._cache.discard(name)
-            return Pokemon(**self._cached_json(name, fetch))
+        # Guarda só os campos do modelo: a resposta completa da API tem
+        # cerca de 300 KB por Pokémon.
+        return self._cached(
+            f"{POKEMON_CACHE_DIR}/{number}.json",
+            _as_json(lambda: asdict(self._fetch_pokemon(number))),
+            lambda content: Pokemon(**json.loads(content)),
+        )
 
     def get_artwork(self, pokemon: Pokemon) -> bytes:
         return self._cached_png(
@@ -197,7 +203,6 @@ class PokeApiRepository:
         )
 
     def get_icon(self, number: int) -> bytes:
-        """Ícone pequeno do Pokémon, para a lista."""
         return self._cached_png(
             f"icons/{number}.png", ICON_URL.format(number=number)
         )
@@ -212,35 +217,26 @@ class PokeApiRepository:
     def _fetch_json(self, url: str) -> Any:
         return json.loads(self._fetch(url))
 
-    def _fetch_png(self, url: str) -> bytes:
-        content = self._fetch(url)
-        if not content.startswith(PNG_SIGNATURE):
-            raise ValueError(f"{url} não devolveu uma imagem PNG.")
-        return content
-
     def _cached_png(self, name: str, url: str) -> bytes:
-        """Imagem do cache; se estiver corrompida, apaga e baixa de novo."""
-        content = self._cache.get_or_create(name, lambda: self._fetch_png(url))
-        if content.startswith(PNG_SIGNATURE):
-            return content
-        logger.warning("Imagem %s corrompida; baixando de novo.", name)
-        self._cache.discard(name)
-        return self._cache.get_or_create(name, lambda: self._fetch_png(url))
+        return self._cached(
+            name,
+            lambda: _require_png(self._fetch(url), url),
+            lambda content: _require_png(content, name),
+        )
 
-    def _cached_json(self, name: str, create: Callable[[], Any]) -> Any:
-        """Lê `name` do cache; se não existir, gera com `create` e salva.
-
-        Guardamos só os campos usados: a resposta completa da API para
-        um Pokémon tem cerca de 300 KB. Um arquivo corrompido é apagado e
-        gerado de novo.
-        """
-
-        def encode() -> bytes:
-            return json.dumps(create(), ensure_ascii=False).encode("utf-8")
-
+    def _cached[T](
+        self,
+        name: str,
+        create: Callable[[], bytes],
+        read: Callable[[bytes], T],
+    ) -> T:
+        content = self._cache.get_or_create(name, create)
         try:
-            return json.loads(self._cache.get_or_create(name, encode))
-        except ValueError:
-            logger.warning("Item %s corrompido; gerando de novo.", name)
+            return read(content)
+        except (ValueError, TypeError, KeyError):
+            # Arquivo corrompido, ou gravado por uma versão antiga do modelo.
+            logger.warning(
+                "Item %s inválido no cache; baixando de novo.", name
+            )
             self._cache.discard(name)
-            return json.loads(self._cache.get_or_create(name, encode))
+            return read(self._cache.get_or_create(name, create))

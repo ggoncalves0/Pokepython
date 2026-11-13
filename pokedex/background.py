@@ -17,9 +17,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-POLL_MS = 10  # intervalo para conferir resultados, só com tarefas pendentes
+POLL_MS = 10
 
-Schedule = Callable[[int, Callable[[], None]], Any]  # como root.after
+Schedule = Callable[[int, Callable[[], None]], Any]
 
 
 class Ticket:
@@ -61,7 +61,7 @@ class TaskRunner:
             queue.PriorityQueue()
         )
         self._done: queue.SimpleQueue[_Task] = queue.SimpleQueue()
-        self._order = itertools.count()  # desempate: ordem de chegada
+        self._arrival_order = itertools.count()
         self._outstanding = 0  # só a thread principal mexe neste número
         self._polling = False
         self._closed = False
@@ -89,12 +89,12 @@ class TaskRunner:
         ticket = Ticket()
         self._outstanding += 1
         item = _Task(ticket, task, on_success, on_error)
-        self._tasks.put((priority, next(self._order), item))
+        self._tasks.put((priority, next(self._arrival_order), item))
         self._start_polling()
         return ticket
 
     def close(self) -> None:
-        """Para de entregar resultados (a janela vai fechar)."""
+        """Para de entregar resultados; as threads só terminam com o app."""
         self._closed = True
 
     def deliver_ready(self) -> None:
