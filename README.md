@@ -40,9 +40,9 @@ Na primeira vez que cada Pokémon é aberto, é preciso estar conectado à inter
 - Visual 8-bit, com fontes pixeladas e o card em tom pastel da cor do tipo do Pokémon
 - Lista com os 151 Pokémon da primeira geração, com um mini ícone de cada um e busca por nome ou número
 - Nome, número e tipos (em português), imagem oficial, status base com barras, habilidades (incluindo a oculta), altura e peso
-- Temas claro e escuro: abre no claro, troca no botão de sol/lua (o tema antigo esmaece sobre o novo) e a escolha fica salva
+- Temas claro e escuro: abre no claro, e o botão de sol/lua troca de tema com o antigo esmaecendo sobre o novo; a escolha fica salva
 - Cache local: cada Pokémon é baixado uma vez só e depois funciona offline
-- Downloads em segundo plano e em paralelo, com novas tentativas se a rede falhar; o Pokémon anterior e o próximo da lista já ficam baixados
+- Downloads em paralelo e em segundo plano, com novas tentativas se a rede falhar: a janela não trava, e o Pokémon anterior e o próximo da lista já ficam baixados
 - A arte cresce junto com a janela
 - Navegação completa pelo teclado
 - Contraste de cores conferido para os 18 tipos, nos dois temas (WCAG AA)
@@ -96,12 +96,12 @@ Pokepython/
 
 ## Observações
 
-- Os dados e as imagens vêm da [PokéAPI](https://pokeapi.co/). Os stats e os tipos são os da geração atual, conferidos com o [Pokémon Database](https://pokemondb.net/pokedex/all) em 11/11/2026. Por isso, alguns Pokémon aparecem diferentes dos jogos antigos: o Clefairy, por exemplo, é do tipo Fada.
+- Os dados vêm da [PokéAPI](https://pokeapi.co/), e as imagens (arte oficial e ícones da lista), do repositório [PokeAPI/sprites](https://github.com/PokeAPI/sprites). Os stats e os tipos são os da geração atual, conferidos com o [Pokémon Database](https://pokemondb.net/pokedex/all) em 11/11/2026. Por isso, alguns Pokémon aparecem diferentes dos jogos antigos: o Clefairy, por exemplo, é do tipo Fada.
 - Os dados baixados ficam na pasta `.cache/`, e o tema escolhido fica no arquivo `settings.json`, os dois na pasta do projeto. Para baixar tudo de novo, apague a pasta `.cache/`; para voltar ao tema claro, apague o `settings.json`.
 - Fontes: [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) (CodeMan38) e [Jersey 10](https://fonts.google.com/specimen/Jersey+10) (Sarah Cadigan-Fried), sob a [SIL Open Font License 1.1](assets/fonts/OFL.txt).
-- Pokémon e seus nomes são marcas registradas da Nintendo / Game Freak / The Pokémon Company.
+- Pokémon, seus nomes e suas imagens são marcas registradas da Nintendo / Game Freak / The Pokémon Company.
 - Projeto criado para fins de estudo/portfólio.
 
 ## 👨‍💻 Autor
-Gabriel Gonçalves de Oliveira  
+Gabriel Gonçalves de Oliveira\
 📧 ggoncalvesy03@gmail.com
