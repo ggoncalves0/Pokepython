@@ -7,7 +7,7 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 ## Funcionalidades
 
 - [x] Visual no estilo 8-bit, com fontes pixeladas e o card em tom pastel da cor do tipo do Pokémon
-- [x] Temas claro e escuro: abre no claro e troca no botão de sol/lua; a escolha fica salva
+- [x] Temas claro e escuro: abre no claro e troca no botão de sol/lua, com o tema antigo esmaecendo sobre o novo; a escolha fica salva
 - [x] Lista à direita com os 151 Pokémon da primeira geração e busca por nome ou número
 - [x] Nome, número e tipos (em português) no topo do card
 - [x] Imagem oficial de cada Pokémon
@@ -17,6 +17,7 @@ Pokédex de desktop com os **151 primeiros Pokémon**, feita em **Python** com *
 - [x] Altura e peso
 - [x] Cache local: cada Pokémon é baixado uma vez só e depois funciona offline
 - [x] A janela não trava enquanto os dados são baixados
+- [x] Downloads em paralelo, com novas tentativas se a rede falhar; o Pokémon anterior e o próximo da lista já ficam baixados
 - [x] A arte cresce junto com a janela
 - [x] Navegação pelo teclado (veja abaixo)
 - [x] Contraste de cores conferido para os 18 tipos, nos dois temas (WCAG AA)
@@ -91,18 +92,23 @@ Pokepython/
 │   ├── models.py      # dados (Pokemon, PokedexEntry) e o contrato da fonte de dados
 │   ├── pokeapi.py     # acesso à PokéAPI e conversão das respostas
 │   ├── cache.py       # cache em disco
+│   ├── background.py  # tarefas em segundo plano, com o resultado entregue na janela
 │   ├── theme.py       # cores (claro e escuro), espaçamentos, fontes e regras de cor por tipo
 │   ├── icons.py       # ícones desenhados com o Pillow (lupa, "×", sol, lua, cursor, ♀ e ♂)
 │   ├── pixel.py       # fontes pixeladas e pixel art nítidos em qualquer escala de tela
 │   ├── settings.py    # salva e restaura o tema escolhido
 │   ├── tooltip.py     # dica que aparece sobre o botão de tema
+│   ├── pokemon_list.py  # lista de Pokémon, desenhada num canvas só
+│   ├── ctk_adapter.py   # ajustes no CustomTkinter e no Windows (cores, barra de título, transição de tema)
 │   └── ui.py          # janela (CustomTkinter)
 ├── assets/
 │   ├── icon.ico       # ícone da janela, em pixel art
 │   └── fonts/         # Press Start 2P e Jersey 10, com a licença (OFL.txt)
 ├── scripts/
+│   ├── benchmark_ui.py    # mede a interface e o primeiro uso (antes e depois de cada mudança)
 │   ├── check_contrast.py  # tabela de contraste das cores, nos dois temas
 │   └── make_icon.py       # gera o assets/icon.ico a partir do desenho em icons.py
+├── specs/             # diagnóstico e especificações do projeto
 ├── tests/             # testes automatizados
 ├── requirements.txt   # dependências do projeto
 └── README.md

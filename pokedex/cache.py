@@ -1,7 +1,12 @@
 """Cache simples em disco: cada item é um arquivo dentro de uma pasta."""
 
+import logging
+import os
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class FileCache:
@@ -11,16 +16,37 @@ class FileCache:
     def get_or_create(self, name: str, create: Callable[[], bytes]) -> bytes:
         """Devolve o conteúdo salvo em `name`.
 
-        Se ele ainda não existir, gera com `create` e salva.
+        Se ele ainda não existir, gera com `create` e salva. Pode ser
+        chamado de várias threads ao mesmo tempo, inclusive para o mesmo
+        item.
         """
         path = self._directory / name
-        if path.exists():
+        try:
             return path.read_bytes()
+        except FileNotFoundError:
+            pass
 
         content = create()
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(path.name + ".tmp")
-        temporary.write_bytes(content)
-        # Troca atômica: o cache nunca fica com um arquivo pela metade.
-        temporary.replace(path)
+        # Nome temporário único: duas threads gravando o mesmo item não
+        # usam o mesmo arquivo. A troca é atômica: o cache nunca fica com
+        # um arquivo pela metade.
+        handle, temporary = tempfile.mkstemp(
+            dir=path.parent, prefix=f"{path.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(handle, "wb") as file:
+                file.write(content)
+            os.replace(temporary, path)
+        except PermissionError:
+            # No Windows, a troca falha se outra thread estiver lendo o
+            # mesmo item, que ela acabou de gravar: o conteúdo é o mesmo.
+            logger.debug("Item %s já gravado por outra thread.", name)
+        finally:
+            if os.path.exists(temporary):
+                os.remove(temporary)
         return content
+
+    def discard(self, name: str) -> None:
+        """Apaga o item, se existir (por exemplo, um arquivo corrompido)."""
+        (self._directory / name).unlink(missing_ok=True)

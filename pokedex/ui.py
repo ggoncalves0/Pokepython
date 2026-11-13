@@ -1,27 +1,26 @@
 """Janela da Pokédex, com visual moderno feito com CustomTkinter."""
 
-import threading
+import logging
 import tkinter as tk
-from collections.abc import Callable, Iterable
-from concurrent.futures import Future, ThreadPoolExecutor
+from collections.abc import Callable
 from functools import partial
 from io import BytesIO
 from pathlib import Path
-from queue import Empty, Queue
-from typing import NamedTuple
 
 import customtkinter as ctk
 from PIL import Image
 
+from . import ctk_adapter
+from .background import TaskRunner, Ticket
 from .icons import (
     TITLE_SYMBOLS,
     close_icon,
     cursor_icon,
     list_symbol,
     moon_icon,
+    pixel_art,
     search_icon,
     sun_icon,
-    pixel_art,
 )
 from .models import PokedexEntry, Pokemon, PokemonRepository
 from .pixel import (
@@ -34,8 +33,8 @@ from .pixel import (
     pixel_font_size,
     render_title,
 )
+from .pokemon_list import PokemonList, format_number
 from .settings import load_theme, save_theme
-from .tooltip import Tooltip
 from .theme import (
     APP_BACKGROUND,
     ARTWORK_MAX_SIZE,
@@ -54,7 +53,6 @@ from .theme import (
     CONTROL_PADDING,
     CONTROL_RADIUS,
     CURSOR_SCALE,
-    CURSOR_X,
     ELEVATED_COLOR,
     ERROR_COLOR,
     FOCUS_BORDER_WIDTH,
@@ -70,20 +68,12 @@ from .theme import (
     ICON_SIZE,
     ITEM_GAP,
     LIST_ICON_SIZE,
-    LIST_TEXT_HEIGHT,
     LIST_WIDTH,
     MIN_WINDOW_SIZE,
     MUTED_COLOR,
-    NUMBER_WIDTH,
     PILL_HEIGHT,
     PILL_PADDING,
     PILL_RADIUS,
-    ROW_GAP,
-    ROW_HEIGHT,
-    ROW_RADIUS,
-    SCROLLBAR_COLOR,
-    SCROLLBAR_HOVER_COLOR,
-    SCROLLBAR_WIDTH,
     SEARCH_HEIGHT,
     SIDEBAR_COLOR,
     SIDEBAR_WIDTH,
@@ -104,17 +94,39 @@ from .theme import (
     pastel,
     readable_text_color,
 )
+from .tooltip import Tooltip
+
+logger = logging.getLogger(__name__)
 
 # Valor que enche a barra. Quase todo stat base fica abaixo disso; os
 # poucos acima (como o HP 250 do Chansey) enchem a barra, e o número ao
 # lado mostra o valor exato. Com o máximo real (255), 45 e 65 pareciam
 # quase iguais.
 STAT_BAR_MAX = 180
-CHECK_INTERVAL_MS = 50
-STATUS_DELAY_MS = 300  # só avisa que está carregando se demorar
+STATUS_DELAY_MS = 300  # só avisa na lateral que está carregando se demorar
+# O card mostra nome, número e "Carregando..." se os dados não chegarem
+# nesse tempo (o critério é aparecer em até 100 ms). Com o Pokémon no
+# cache, os dados já estão prontos nessa hora e entram direto: o card de
+# espera não pisca.
+LOADING_DELAY_MS = 50
+FILTER_DELAY_MS = 150  # a busca roda uma vez, 150 ms depois da última tecla
 RESIZE_DELAY_MS = 60  # espera a janela parar de mudar antes de redesenhar
+FADE_MS = 220  # transição de tema: o tema antigo esmaece sobre o novo
+FADE_STEPS = 12
+# Pedidos em paralelo, em três filas, para o clique nunca esperar as
+# outras: o Pokémon escolhido, a pré-carga dos vizinhos e os ícones. A
+# PokéAPI recebe no máximo 6 pedidos de uma vez (pokeapi.MAX_CONNECTIONS).
+DETAIL_WORKERS = 2
+PREFETCH_WORKERS = 1
+ICON_WORKERS = 4
+# Prioridades na fila dos ícones: os das linhas visíveis vão antes.
+PRIORITY_NOW = 0
+PRIORITY_ICON = 1
 CONNECTION_ERROR = "Sem conexão com a PokéAPI."
-NO_RESULTS = "Nenhum Pokémon encontrado"
+LOAD_ERROR = "Não deu para carregar {name}."
+LIST_ERROR = "Não deu para carregar a lista de Pokémon."
+LOADING = "Carregando..."
+NO_VALUE = "—"
 # Um Pokémon tem no máximo 2 habilidades normais e 1 oculta. O card
 # reserva sempre as 3 linhas, para não mudar de altura entre Pokémon.
 MAX_ABILITIES = 3
@@ -141,18 +153,6 @@ class IconButton(ctk.CTkButton):
         tk.Frame.focus_force(self)
 
 
-class ListRow(NamedTuple):
-    """Linha clicável da lista: ícone, número, nome e, se houver, ♀/♂."""
-
-    entry: PokedexEntry
-    frame: ctk.CTkFrame
-    number: ctk.CTkLabel
-    name: ctk.CTkLabel
-    icon: ctk.CTkLabel
-    symbol: ctk.CTkLabel | None
-    search_text: str
-
-
 STAT_NAMES = {
     "hp": "HP",
     "attack": "Ataque",
@@ -162,9 +162,7 @@ STAT_NAMES = {
     "speed": "Velocidade",
 }
 
-
-def format_number(number: int) -> str:
-    return f"#{number:03}"
+__all__ = ["PokedexWindow", "format_number"]
 
 
 def format_measure(value: float, unit: str) -> str:
@@ -231,40 +229,46 @@ def themed_icon(
     )
 
 
+def ease_out(progress: float) -> float:
+    """Começa rápido e termina devagar (0 a 1)."""
+    return 1 - (1 - progress) ** 2
+
+
 class PokedexWindow:
     """Janela principal: detalhes à esquerda, busca e lista à direita."""
 
     def __init__(self, repository: PokemonRepository) -> None:
-        # "system" (o padrão) segue o tema do Windows, inclusive se ele
-        # mudar com o app aberto.
         ctk.set_appearance_mode(load_theme(SETTINGS_PATH))
+        # Correções do CustomTkinter (cores ao trocar de tema, janela que
+        # sumia na troca): antes de criar a janela. Veja ctk_adapter.
+        ctk_adapter.install()
         # As fontes precisam ser registradas antes de criar os widgets.
         fonts_loaded = load_pixel_fonts()
         self._root = ctk.CTk(fg_color=APP_BACKGROUND)
         self._pixel_fonts = fonts_loaded and fonts_available(self._root)
         self._repository = repository
-        self._executor = ThreadPoolExecutor(max_workers=1)
-        # Os ícones da lista vêm em outra fila, para não atrasar o Pokémon
-        # escolhido; _closing interrompe o download ao fechar a janela.
-        self._icon_executor = ThreadPoolExecutor(max_workers=1)
-        self._closing = threading.Event()
-        self._rows: dict[int, ListRow] = {}
+        self._details = TaskRunner(self._root.after, DETAIL_WORKERS, "dados")
+        self._prefetch = TaskRunner(
+            self._root.after, PREFETCH_WORKERS, "vizinhos"
+        )
+        self._icons = TaskRunner(self._root.after, ICON_WORKERS, "icones")
         self._selected: int | None = None
         self._shown: int | None = None  # Pokémon exibido nos cards
-        self._hovered: int | None = None  # linha sob o mouse
-        # Fundo e texto da linha selecionada: cinza enquanto carrega, pastel
-        # depois.
-        self._selected_background: str | ThemeColor = ELEVATED_COLOR
-        self._selected_text: str | ThemeColor = TEXT_COLOR
-        self._list_focused = False
-        self._pending: Future | None = None
+        self._loading: Ticket | None = None  # pedido do Pokémon escolhido
+        self._loading_job: str | None = None
+        self._filter_job: str | None = None
+        self._prefetched: set[int] = set()  # no cache ou a caminho
+        self._prefetching: dict[int, Ticket] = {}  # pré-cargas pendentes
         self._count_text = ""  # "151 Pokémon", depois que a lista chega
         self._query = ""  # busca aplicada à lista
         self._search_focused = False
-        self._accent = MUTED_COLOR  # cor de destaque do tipo atual
+        self._accent: str | ThemeColor = MUTED_COLOR  # cor do tipo atual
         self._artwork_image: Image.Image | None = None  # arte original
         self._artwork_job: str | None = None
         self._status_job: str | None = None
+        # Transição de tema: foto do tema antigo, por cima da janela.
+        self._cover = ctk_adapter.WindowCover(self._root)
+        self._fading = 0  # conta as trocas; passos de uma troca antiga param
         self._images: dict[tuple, PixelImage] = {}  # cursor, ♀ e ♂ por cor
         # Títulos desenhados como imagem e o que cada um mostra, para
         # redesenhar se a escala da tela mudar (veja _set_title).
@@ -283,6 +287,8 @@ class PokedexWindow:
 
         self._build_details()
         self._build_sidebar()
+        # Se a janela for para um monitor com outra escala, ajusta de novo.
+        ctk.ScalingTracker.add_widget(self._on_scaling_change, self._root)
         # Teclado: setas trocam o Pokémon (com o foco na lista ou na busca)
         # e Ctrl+F leva à busca.
         self._root.bind("<Up>", lambda _event: self._move_selection(-1))
@@ -290,13 +296,17 @@ class PokedexWindow:
         for key in ("<Control-f>", "<Control-F>"):
             self._root.bind(key, lambda _event: self._focus_search())
         self._show_status("Carregando a Pokédex...")
-        self._run_in_background(repository.list_entries, self._show_entries)
+        self._details.submit(
+            repository.list_entries, self._show_entries,
+            on_error=partial(self._report_error, LIST_ERROR),
+            priority=PRIORITY_NOW,
+        )
 
     def run(self) -> None:
         self._root.mainloop()
 
     def _create_fonts(self) -> None:
-        """Press Start 2P nos títulos, números e valores; Jersey 10 no resto.
+        """Press Start 2P nos títulos e números; Jersey 10 no resto.
 
         Se as fontes não carregarem, usa a fonte padrão do CustomTkinter,
         com títulos e selos em negrito.
@@ -328,15 +338,17 @@ class PokedexWindow:
         )
         scaling = ctk.ScalingTracker.get_widget_scaling(self._root)
         self._snap_title_fonts(scaling)
-        # Se a janela for para um monitor com outra escala, ajusta de novo.
-        ctk.ScalingTracker.add_widget(self._snap_title_fonts, self._root)
 
-    def _snap_title_fonts(self, widget_scaling: float, *_args) -> None:
+    def _snap_title_fonts(self, widget_scaling: float) -> None:
         """Mantém a Press Start 2P em múltiplos de 8 px na tela."""
         for font, size in self._grid_fonts:
             font.configure(size=pixel_font_size(size, widget_scaling))
         for label, title in self._titles.items():
             label.configure(image=self._title_image(*title))
+
+    def _on_scaling_change(self, widget_scaling: float, *_args) -> None:
+        self._snap_title_fonts(widget_scaling)
+        self._list.rescale()
 
     def _set_title(
         self,
@@ -462,44 +474,22 @@ class PokedexWindow:
             row=2, column=0, sticky="ew", padx=WINDOW_MARGIN, pady=CARD_GAP
         )
 
-        # Sem canto arredondado: com ele, o CTkScrollableFrame recua o
-        # conteúdo e as linhas saem do alinhamento com a busca.
-        self._list = ctk.CTkScrollableFrame(
-            sidebar, width=LIST_WIDTH, corner_radius=0,
-            fg_color="transparent",
-            scrollbar_button_color=SCROLLBAR_COLOR,
-            scrollbar_button_hover_color=SCROLLBAR_HOVER_COLOR,
+        # A lista é um canvas só (veja pokemon_list): rolar, filtrar e
+        # trocar o tema não mexem em centenas de widgets.
+        self._list = PokemonList(
+            sidebar,
+            number_font=self._list_number_font,
+            name_font=self._list_name_font,
+            message_font=self._body_font,
+            split_name=self._split_name,
+            cursor_image=self._cursor_image,
+            symbol_image=self._symbol_image,
+            on_click=self._select,
         )
-        self._list.grid(
+        self._list.frame.grid(
             row=3, column=0, sticky="nsew",
             padx=WINDOW_MARGIN, pady=(0, WINDOW_MARGIN),
         )
-        self._list.grid_columnconfigure(0, weight=1)
-        self._list._scrollbar.configure(width=SCROLLBAR_WIDTH)
-        # A lista recebe o foco com um clique numa linha ou com Tab. Com
-        # foco, a linha selecionada ganha um anel na cor do tipo.
-        tk.Frame.configure(self._list, takefocus=True)
-        self._list.bind("<FocusIn>", lambda _event: self._set_list_focus(True))
-        self._list.bind(
-            "<FocusOut>", lambda _event: self._set_list_focus(False)
-        )
-        # A barra de rolagem some quando a lista cabe inteira. Confere de
-        # novo quando muda o conteúdo (busca) ou a altura (janela).
-        self._list.bind("<Configure>", self._update_scrollbar, add="+")
-        self._list._parent_canvas.bind(
-            "<Configure>", self._update_scrollbar, add="+"
-        )
-        self._no_results = self._label(
-            self._list, NO_RESULTS, color=MUTED_COLOR,
-            # Desconta o recuo à esquerda (alinhado com a lupa); senão a
-            # frase passa da borda da lista e é cortada.
-            wraplength=LIST_WIDTH - CONTROL_PADDING, justify="left",
-        )
-        # Cursor ▶ da linha selecionada. É um só: _paint_row o coloca na
-        # linha da vez, no recuo à esquerda do número.
-        self._cursor = ctk.CTkLabel(self._list, text="", width=0, height=0)
-        self._cursor.configure(cursor="hand2")
-        self._cursor.bind("<Button-1>", lambda _event: self._list.focus_set())
 
     def _build_theme_button(self, parent: ctk.CTkFrame) -> ctk.CTkButton:
         """Botão que alterna entre os temas claro e escuro.
@@ -517,21 +507,18 @@ class PokedexWindow:
             corner_radius=ICON_BUTTON_RADIUS,
             fg_color="transparent",
             hover_color=ELEVATED_COLOR,
-            border_color=ELEVATED_COLOR,
+            border_color=FOCUS_COLOR,
             command=self._toggle_theme,
         )
         tip = Tooltip(button, self._theme_tip, self._body_font)
         # Teclado: entra na ordem do Tab e responde a Enter e espaço. Com o
-        # foco, ganha um anel na cor do tipo e mostra a dica na hora.
+        # foco, ganha um anel neutro (como a busca) e mostra a dica na hora.
         tk.Frame.configure(button, takefocus=True)
         for key in ("<Return>", "<KP_Enter>", "<space>"):
             tk.Misc.bind(button, key, lambda _event: button.invoke())
 
         def focus(focused: bool) -> None:
-            button.configure(
-                border_width=FOCUS_BORDER_WIDTH if focused else 0,
-                border_color=self._accent,
-            )
+            button.configure(border_width=FOCUS_BORDER_WIDTH if focused else 0)
             if focused:
                 tip.show()
             else:
@@ -607,7 +594,7 @@ class PokedexWindow:
         # Clicar na lupa ou na moldura também leva ao campo.
         for widget in (box, icon):
             widget.bind("<Button-1>", lambda _event: self._search.focus_set())
-        self._search.bind("<KeyRelease>", self._apply_filter)
+        self._search.bind("<KeyRelease>", self._on_search_key)
         self._search.bind("<Escape>", lambda _event: self._clear_search())
         for key in ("<Return>", "<KP_Enter>"):
             self._search.bind(key, lambda _event: self._open_first_result())
@@ -632,7 +619,7 @@ class PokedexWindow:
         details.grid_rowconfigure(0, weight=1)
 
         # Card em tom pastel da cor do tipo principal, com nome, número e
-        # tipos no topo. O contorno aparece só no tema claro (veja
+        # tipos no topo, e um contorno mais escuro que o pastel (veja
         # hero_border_color).
         self._hero = ctk.CTkFrame(
             details, corner_radius=CARD_RADIUS, fg_color=CARD_COLOR,
@@ -674,6 +661,10 @@ class PokedexWindow:
             self._art_area, text="", width=0, height=0
         )
         self._artwork.place(relx=0.5, rely=0.5, anchor="center")
+        # No lugar da arte enquanto os dados não chegam (ou se falharem).
+        self._art_message = self._label(
+            self._art_area, "", color=MUTED_COLOR
+        )
         self._art_area.bind("<Configure>", self._schedule_artwork_resize)
 
         # Esquerda: status. Direita: habilidades e, embaixo, peso e altura.
@@ -845,212 +836,53 @@ class PokedexWindow:
     # --- Lista e busca -------------------------------------------------
 
     def _show_entries(self, entries: list[PokedexEntry]) -> None:
-        for position, entry in enumerate(entries):
-            row = self._make_row(entry)
-            row.frame.grid(
-                row=position, column=0, sticky="ew", pady=(0, ROW_GAP)
-            )
-            self._rows[entry.number] = row
-        # Aviso de busca sem resultado, logo abaixo das linhas (que somem).
-        self._no_results.grid(
-            row=len(entries), column=0, sticky="w", padx=CONTROL_PADDING
-        )
-        self._no_results.grid_remove()
+        self._list.set_entries(entries)
         self._show_count(len(entries))
         self._select(entries[0])
-        self._load_icons(entries)
+        self._load_icons()
 
-    def _load_icons(self, entries: Iterable[PokedexEntry]) -> None:
-        """Baixa os ícones da lista em segundo plano, em ordem.
+    def _load_icons(self) -> None:
+        """Baixa os ícones em paralelo, os da área visível primeiro.
 
-        Cada ícone aparece assim que chega. Sem conexão, para no primeiro
-        erro: as linhas ficam sem ícone até a próxima vez que o app abrir.
+        Cada um aparece assim que chega. Um ícone que falha (depois das
+        novas tentativas da rede) não interrompe os outros.
         """
-        arrived: Queue[tuple[int, bytes] | None] = Queue()
+        in_view = set(self._list.numbers_in_view())
+        numbers = self._list.visible_numbers()
+        for number in sorted(numbers, key=lambda n: n not in in_view):
+            self._icons.submit(
+                partial(self._fetch_icon, number),
+                partial(self._list.set_icon, number),
+                on_error=partial(self._icon_failed, number),
+                priority=PRIORITY_NOW if number in in_view else PRIORITY_ICON,
+            )
 
-        def download_all() -> None:
-            for entry in entries:
-                if self._closing.is_set():
-                    break
-                try:
-                    arrived.put((entry.number, self._repository.get_icon(
-                        entry.number
-                    )))
-                except OSError:  # sem rede ou erro HTTP
-                    break
-            arrived.put(None)  # acabou
+    def _fetch_icon(self, number: int) -> Image.Image:
+        """Roda fora da thread da interface: baixa e recorta o ícone."""
+        data = self._repository.get_icon(number)
+        image = Image.open(BytesIO(data)).convert("RGBA")
+        return image.crop(LIST_ICON_CROP)
 
-        self._icon_executor.submit(download_all)
-        self._show_icons(arrived)
-
-    def _show_icons(self, arrived: Queue) -> None:
-        """Põe na lista os ícones que já chegaram e confere de novo depois."""
-        while True:
-            try:
-                item = arrived.get_nowait()
-            except Empty:
-                break
-            if item is None:
-                return
-            number, data = item
-            try:
-                image = Image.open(BytesIO(data)).convert("RGBA")
-            except OSError:
-                continue  # arquivo estragado: a linha fica sem ícone
-            image = image.crop(LIST_ICON_CROP)
-            self._rows[number].icon.configure(image=PixelImage(image, image))
-        self._root.after(CHECK_INTERVAL_MS, self._show_icons, arrived)
+    @staticmethod
+    def _icon_failed(number: int, error: Exception) -> None:
+        # O ícone é enfeite: a linha continua usável sem ele.
+        logger.warning("Ícone do #%03d não carregou: %s", number, error)
 
     def _show_count(self, shown: int) -> None:
         """"151 Pokémon" sem busca; "2 de 151" durante a busca."""
-        total = len(self._rows)
+        total = self._list.total
         self._count_text = (
             f"{shown} de {total}" if self._query else f"{total} Pokémon"
         )
         self._show_status(self._count_text)
 
-    def _update_scrollbar(self, _event: tk.Event | None = None) -> None:
-        """Mostra a barra de rolagem só quando a lista não cabe inteira."""
-        # O CTkScrollableFrame não tem acesso público à barra.
-        scrollbar = self._list._scrollbar
-        visible_height = self._list._parent_canvas.winfo_height()
-        fits = self._list.winfo_reqheight() <= visible_height
-        if fits and scrollbar.winfo_manager():
-            scrollbar.grid_remove()
-        elif not fits and not scrollbar.winfo_manager():
-            scrollbar.grid()
-
-    def _make_row(self, entry: PokedexEntry) -> ListRow:
-        # O CTkButton só aceita uma fonte para o texto todo; com dois
-        # labels, o número e o nome podem ter fontes diferentes.
-        frame = ctk.CTkFrame(
-            self._list, corner_radius=ROW_RADIUS, fg_color="transparent"
-        )
-        # Textos mais baixos que a linha, para não cobrirem o anel de foco
-        # desenhado na borda dela.
-        inset = (ROW_HEIGHT - LIST_TEXT_HEIGHT) // 2
-        # Mini foto, número e nome. A foto começa alinhada com a lupa da
-        # busca; o cursor ▶ fica no recuo antes dela. Até o ícone chegar,
-        # o espaço fica vazio, do mesmo tamanho.
-        icon_width, icon_height = LIST_ICON_SIZE
-        icon = ctk.CTkLabel(
-            frame, text="", width=icon_width, height=icon_height
-        )
-        icon.pack(side="left", padx=(CONTROL_PADDING, ITEM_GAP // 2))
-        number_text = format_number(entry.number)
-        number = self._label(
-            frame, number_text, self._list_number_font,
-            width=NUMBER_WIDTH, height=LIST_TEXT_HEIGHT,
-        )
-        number.pack(side="left", padx=(0, ITEM_GAP), pady=inset)
-        name_text, symbol_char = self._split_name(entry.name)
-        name = self._label(
-            frame, name_text, self._list_name_font, height=LIST_TEXT_HEIGHT
-        )
-        name.pack(side="left", pady=inset)
-        widgets = [frame, icon, number, name]
-        symbol = None
-        if symbol_char is not None:
-            symbol = ctk.CTkLabel(
-                frame, text="", width=0, height=0,
-                image=self._symbol_image(symbol_char, TEXT_COLOR),
-            )
-            symbol.pack(side="left")
-            widgets.append(symbol)
-
-        for widget in widgets:
-            widget.configure(cursor="hand2")
-            widget.bind(
-                "<Button-1>", lambda _event, e=entry: self._click_row(e)
-            )
-            widget.bind(
-                "<Enter>", lambda _event, n=entry.number: self._hover(n)
-            )
-            widget.bind(
-                "<Leave>", lambda _event, n=entry.number: self._hover(n)
-            )
-        search_text = f"{number_text} {entry.name}".lower()
-        return ListRow(
-            entry, frame, number, name, icon, symbol, search_text
-        )
-
-    def _click_row(self, entry: PokedexEntry) -> None:
-        self._list.focus_set()  # as setas seguem daqui, com anel de foco
-        self._select(entry)
-
-    def _hover(self, number: int) -> None:
-        """Destaca a linha enquanto o mouse estiver sobre ela.
-
-        Ao passar do fundo da linha para um dos textos, o Tk avisa que o
-        mouse saiu da linha; por isso conferimos onde o mouse está de fato.
-        """
-        frame = self._rows[number].frame
-        x, y = self._root.winfo_pointerxy()
-        under = str(self._root.winfo_containing(x, y))
-        if under == str(frame) or under.startswith(f"{frame}."):
-            self._hovered = number
-        elif self._hovered == number:
-            self._hovered = None
-        self._paint_row(number)
-
-    def _paint_row(self, number: int) -> None:
-        """Pinta a linha conforme o estado: selecionada, sob o mouse ou não.
-
-        A selecionada usa o pastel do Pokémon (cinza enquanto carrega) e o
-        cursor ▶, que a marca mesmo quando o pastel quase some no tema
-        claro. Com a lista em foco, ganha um anel de 2 px na cor do tipo.
-        """
-        row = self._rows[number]
-        border = 0
-        background, text_color = "transparent", TEXT_COLOR
-        if number == self._selected:
-            background = self._selected_background
-            text_color = self._selected_text
-            if self._list_focused:
-                border = FOCUS_BORDER_WIDTH
-            self._place_cursor(row, background, text_color)
-        elif number == self._hovered:
-            background = ELEVATED_COLOR
-        row.frame.configure(
-            fg_color=background, border_width=border,
-            border_color=self._accent,
-        )
-        row.number.configure(text_color=text_color)
-        row.name.configure(text_color=text_color)
-        if row.symbol is not None:
-            symbol = split_symbol(row.entry.name)[1]
-            row.symbol.configure(
-                image=self._symbol_image(symbol, text_color)
-            )
-
-    def _place_cursor(
-        self,
-        row: ListRow,
-        background: str | ThemeColor,
-        color: str | ThemeColor,
-    ) -> None:
-        """Põe o cursor ▶ na linha, centralizado na altura dela."""
-        self._cursor.configure(
-            fg_color=background, image=self._cursor_image(color)
-        )
-        # Com in_, o cursor acompanha a linha: some quando a busca a esconde.
-        self._cursor.place(in_=row.frame, x=CURSOR_X, rely=0.5, anchor="w")
-        self._cursor.lift()  # na frente da linha, criada depois dele
-
-    def _set_list_focus(self, focused: bool) -> None:
-        self._list_focused = focused
-        if self._selected is not None:
-            self._paint_row(self._selected)
-
     def _visible_numbers(self) -> list[int]:
         """Números das linhas que a busca deixou à mostra, em ordem."""
-        return [
-            number for number, row in self._rows.items()
-            if row.frame.winfo_manager()  # "" quando escondida pela busca
-        ]
+        return self._list.visible_numbers()
 
     def _move_selection(self, step: int) -> str:
         """Seta para cima (-1) ou para baixo (+1): seleciona o vizinho."""
+        self._flush_filter()
         visible = self._visible_numbers()
         if visible:
             if self._selected in visible:
@@ -1058,13 +890,14 @@ class PokedexWindow:
                 index = max(0, min(index, len(visible) - 1))
             else:
                 index = 0  # a seleção sumiu na busca: vai ao primeiro
-            self._select(self._rows[visible[index]].entry)
+            self._select(self._list.entry(visible[index]))
         return "break"  # a tecla já foi tratada
 
     def _open_first_result(self) -> str:
+        self._flush_filter()
         visible = self._visible_numbers()
         if visible:
-            self._select(self._rows[visible[0]].entry)
+            self._select(self._list.entry(visible[0]))
         return "break"
 
     def _focus_search(self) -> str:
@@ -1072,57 +905,42 @@ class PokedexWindow:
         self._search.select_range(0, "end")  # digitar substitui a busca
         return "break"
 
-    def _scroll_to(self, number: int) -> None:
-        """Rola a lista só o necessário para a linha ficar inteira à vista."""
-        self._root.update_idletasks()  # posições em dia depois de filtrar
-        frame = self._rows[number].frame
-        # O CTkScrollableFrame não tem método público para rolar.
-        canvas = self._list._parent_canvas
-        content_height = self._list.winfo_height()
-        if content_height <= 1:
-            return  # a lista ainda não foi desenhada
-        top = frame.winfo_y()
-        bottom = top + frame.winfo_height()
-        view_top, view_bottom = (
-            fraction * content_height for fraction in canvas.yview()
-        )
-        if top < view_top:
-            canvas.yview_moveto(top / content_height)
-        elif bottom > view_bottom:
-            canvas.yview_moveto(
-                (bottom - (view_bottom - view_top)) / content_height
-            )
-
-    def _apply_filter(self, _event: tk.Event | None = None) -> None:
-        text = self._search.get()
-        if text:
+    def _on_search_key(self, _event: tk.Event | None = None) -> None:
+        """A cada tecla, o "×" aparece ou some na hora; a busca espera
+        FILTER_DELAY_MS depois da última tecla e roda uma vez só."""
+        if self._search.get():
+            if not self._clear_button.winfo_manager():
+                ctk_adapter.sync_backgrounds(self._clear_button)  # bug A
             self._clear_button.grid()
         else:
             self._clear_button.grid_remove()
+        if self._filter_job is not None:
+            self._root.after_cancel(self._filter_job)
+        self._filter_job = self._root.after(
+            FILTER_DELAY_MS, self._apply_filter
+        )
 
-        query = text.strip().lower()
+    def _flush_filter(self) -> None:
+        """Aplica já a busca que estava esperando (Enter, setas)."""
+        if self._filter_job is not None:
+            self._root.after_cancel(self._filter_job)
+            self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        self._filter_job = None
+        query = self._search.get().strip().lower()
         if query == self._query:
             return  # teclas como as setas não mudam o texto
         self._query = query
-        shown = 0
-        for row in self._rows.values():
-            if query in row.search_text:
-                row.frame.grid()  # volta para a mesma posição de antes
-                shown += 1
-            else:
-                row.frame.grid_remove()
-        if shown:
-            self._no_results.grid_remove()
-        else:
-            self._no_results.grid()
-        self._show_count(shown)
-        # Volta ao topo; senão, com a lista rolada, os resultados ficam fora
-        # da vista. O CTkScrollableFrame não tem método público para isso.
-        self._list._parent_canvas.yview_moveto(0)
+        self._show_count(self._list.filter(query))
 
     def _clear_search(self) -> None:
+        if self._filter_job is not None:
+            self._root.after_cancel(self._filter_job)
+            self._filter_job = None
         self._search.delete(0, "end")
         self._search.focus_set()
+        self._clear_button.grid_remove()
         self._apply_filter()
 
     def _paint_search_border(self, focused: bool | None = None) -> None:
@@ -1139,30 +957,36 @@ class PokedexWindow:
             )
 
     def _select(self, entry: PokedexEntry) -> None:
-        self._scroll_to(entry.number)
-        if entry.number == self._selected == self._shown:
-            return  # já está na tela
-        previous, self._selected = self._selected, entry.number
+        self._list.scroll_to(entry.number)
+        if entry.number == self._selected and (
+            self._shown == entry.number or self._loading is not None
+        ):
+            return  # já está na tela ou a caminho
+        self._selected = entry.number
         # Cinza enquanto carrega; ao terminar, ganha o pastel do card.
-        self._selected_background = ELEVATED_COLOR
-        self._selected_text = TEXT_COLOR
-        if previous is not None:
-            self._paint_row(previous)
-        self._paint_row(entry.number)
+        self._list.set_selection(
+            entry.number, ELEVATED_COLOR, TEXT_COLOR, self._accent
+        )
         self._load(entry)
 
     # --- Carregamento e exibição do Pokémon ----------------------------
 
     def _load(self, entry: PokedexEntry) -> None:
-        if self._pending is not None:
-            # Descarta o pedido anterior se ele ainda não começou.
-            self._pending.cancel()
+        if self._loading is not None:
+            self._loading.cancel()  # o anterior não interessa mais
         self._cancel_status_delay()
+        self._cancel_loading_card()
         self._status_job = self._root.after(
             STATUS_DELAY_MS, self._show_status, f"Carregando {entry.name}..."
         )
-        self._pending = self._run_in_background(
-            lambda: self._fetch(entry.number), self._show_pokemon
+        self._loading_job = self._root.after(
+            LOADING_DELAY_MS, self._loading_delay_over, entry
+        )
+        self._loading = self._details.submit(
+            partial(self._fetch, entry.number),
+            self._show_pokemon,
+            on_error=partial(self._load_failed, entry),
+            priority=PRIORITY_NOW,
         )
 
     def _fetch(self, number: int) -> tuple[Pokemon, Image.Image]:
@@ -1172,10 +996,115 @@ class PokedexWindow:
         image.thumbnail((ARTWORK_MAX_SIZE, ARTWORK_MAX_SIZE))
         return pokemon, image
 
+    def _warm_cache(self, number: int) -> None:
+        """Pré-carga: só baixa para o cache, sem preparar a imagem."""
+        self._repository.get_artwork(self._repository.get_pokemon(number))
+
+    def _prefetch_neighbors(self, number: int) -> None:
+        """Baixa em segundo plano o anterior e o próximo da lista.
+
+        Vizinhos de uma escolha anterior que ainda não começaram são
+        cancelados: navegando rápido, a fila não acumula.
+        """
+        visible = self._visible_numbers()
+        if number not in visible:
+            return
+        index = visible.index(number)
+        neighbors = [
+            neighbor for neighbor in visible[max(index - 1, 0):index + 2]
+            if neighbor != number
+        ]
+        for old in list(self._prefetching):
+            if old not in neighbors:
+                self._prefetching.pop(old).cancel()
+                self._prefetched.discard(old)
+        for neighbor in neighbors:
+            if neighbor in self._prefetched:
+                continue
+            self._prefetched.add(neighbor)
+            self._prefetching[neighbor] = self._prefetch.submit(
+                partial(self._warm_cache, neighbor),
+                partial(self._prefetch_done, neighbor),
+                on_error=partial(self._prefetch_failed, neighbor),
+            )
+
+    def _prefetch_done(self, number: int, _result: None) -> None:
+        self._prefetching.pop(number, None)
+
+    def _prefetch_failed(self, number: int, error: Exception) -> None:
+        self._prefetching.pop(number, None)
+        self._prefetched.discard(number)  # tenta de novo numa próxima vez
+        logger.info("Pré-carga do #%03d falhou: %s", number, error)
+
+    def _cancel_loading_card(self) -> None:
+        if self._loading_job is not None:
+            self._root.after_cancel(self._loading_job)
+            self._loading_job = None
+
+    def _loading_delay_over(self, entry: PokedexEntry) -> None:
+        """Os dados não chegaram no prazo: mostra o card de espera.
+
+        Antes, entrega o que já ficou pronto. Com o Pokémon no cache, os
+        dados já estão prontos e entram direto, sem o card de espera.
+        """
+        self._loading_job = None
+        self._details.deliver_ready()
+        self._show_loading_card(entry, LOADING)
+
+    def _show_loading_card(self, entry: PokedexEntry, message: str) -> None:
+        """Card só com nome, número e um aviso no lugar da arte.
+
+        Aparece quando os dados demoram (ou falham), para o clique ter
+        resposta na hora.
+        """
+        self._loading_job = None
+        if entry.number != self._selected or entry.number == self._shown:
+            return
+        self._shown = None  # o card já não mostra o Pokémon anterior
+        self._hero.configure(
+            fg_color=CARD_COLOR, border_color=CARD_BORDER_COLOR
+        )
+        name, symbol = self._split_name(entry.name)
+        self._set_title(self._name, name, FONT_HERO, TEXT_COLOR, symbol)
+        self._set_title(
+            self._number, format_number(entry.number), FONT_TITLE,
+            MUTED_COLOR,
+        )
+        clear(self._badges)
+        self._artwork.place_forget()
+        self._art_message.configure(text=message)
+        if not self._art_message.winfo_manager():
+            ctk_adapter.sync_backgrounds(self._art_message)  # bug A
+            self._art_message.place(relx=0.5, rely=0.5, anchor="center")
+        for value_label, bar in self._stat_widgets:
+            value_label.configure(text=NO_VALUE)
+            bar.set(0)
+        self._total.configure(text=NO_VALUE)
+        for name_label, tag in self._ability_rows:
+            name_label.configure(text="")
+            tag.pack_forget()
+        for measure in self._measures:
+            measure.configure(text=NO_VALUE)
+
+    def _load_failed(self, entry: PokedexEntry, error: Exception) -> None:
+        if entry.number != self._selected:
+            return  # o usuário já escolheu outro Pokémon
+        self._loading = None
+        self._cancel_loading_card()
+        if isinstance(error, OSError):
+            message = CONNECTION_ERROR
+        else:
+            message = LOAD_ERROR.format(name=entry.name)
+        # Nunca fica preso em "Carregando...": o card e a lateral avisam.
+        self._show_loading_card(entry, message)
+        self._report_error(message, error)
+
     def _show_pokemon(self, result: tuple[Pokemon, Image.Image]) -> None:
         pokemon, image = result
         if pokemon.number != self._selected:
             return  # chegou tarde: o usuário já escolheu outro Pokémon
+        self._loading = None
+        self._cancel_loading_card()
         self._shown = pokemon.number
         color = type_styles(pokemon)[0].color
         background = pastel(color)
@@ -1184,6 +1113,10 @@ class PokedexWindow:
         self._hero.configure(
             fg_color=background, border_color=hero_border_color(color)
         )
+        self._art_message.place_forget()
+        if not self._artwork.winfo_manager():
+            ctk_adapter.sync_backgrounds(self._artwork)  # bug A
+            self._artwork.place(relx=0.5, rely=0.5, anchor="center")
         self._artwork_image = image
         self._render_artwork()
         name, symbol = self._split_name(pokemon.name)
@@ -1193,9 +1126,9 @@ class PokedexWindow:
             hero_number_color(background),
         )
         self._accent = bar_color(color)
-        self._selected_background = background
-        self._selected_text = text_color
-        self._paint_row(pokemon.number)
+        self._list.set_selection(
+            pokemon.number, background, text_color, self._accent
+        )
 
         height_label, weight_label = self._measures
         height_label.configure(text=format_measure(pokemon.height, "m"))
@@ -1206,7 +1139,7 @@ class PokedexWindow:
             badge = self._type_badge(self._badges, style)
             badge.pack(side="left", padx=(ITEM_GAP, 0))
 
-        stats = zip(self._stat_widgets, stat_rows(pokemon))
+        stats = zip(self._stat_widgets, stat_rows(pokemon), strict=True)
         for (value_label, bar), (_, value) in stats:
             value_label.configure(text=str(value))
             bar.configure(progress_color=self._accent)
@@ -1220,16 +1153,42 @@ class PokedexWindow:
             )
             name_label.configure(text=name)
             if hidden:
+                ctk_adapter.sync_backgrounds(tag)  # bug A
                 tag.pack(side="left", padx=ITEM_GAP)
             else:
                 tag.pack_forget()
         self._show_status(self._count_text)
+        self._prefetch_neighbors(pokemon.number)
+
+    # --- Tema -------------------------------------------------------------
 
     def _toggle_theme(self) -> None:
-        """Troca entre claro e escuro e guarda a escolha para a próxima vez."""
+        """Troca entre claro e escuro e guarda a escolha para a próxima vez.
+
+        Uma foto do tema antigo cobre a janela e esmaece sobre o tema novo:
+        a troca fica suave, sem mostrar os widgets se redesenhando.
+        """
         theme = "light" if ctk.get_appearance_mode() == "Dark" else "dark"
+        self._fading += 1  # passos pendentes de uma troca anterior param
+        covered = self._cover.show()  # sem foto, a troca é direta
         ctk.set_appearance_mode(theme)
         save_theme(SETTINGS_PATH, theme)
+        if covered:
+            self._root.update_idletasks()  # o tema novo, já desenhado
+            self._fade_step(self._fading, 1)
+        else:
+            self._cover.hide()  # a foto de uma troca anterior, se sobrou
+
+    def _fade_step(self, fade: int, step: int) -> None:
+        if fade != self._fading:
+            return  # outra troca começou e pôs uma foto nova
+        if step > FADE_STEPS:
+            self._cover.hide()
+            return
+        self._cover.set_opacity(1 - ease_out(step / FADE_STEPS))
+        self._root.after(
+            FADE_MS // FADE_STEPS, self._fade_step, fade, step + 1
+        )
 
     def _set_window_icon(self) -> None:
         """Troca o ícone padrão do CustomTkinter pelo da Pokédex.
@@ -1240,7 +1199,7 @@ class PokedexWindow:
         try:
             self._root.iconbitmap(str(ICON_PATH))
         except tk.TclError:
-            pass  # fora do Windows o .ico pode não ser aceito
+            logger.info("Ícone da janela não aceito neste sistema.")
 
     def _schedule_artwork_resize(self, _event: tk.Event) -> None:
         """Redesenha a arte quando o hero muda de tamanho.
@@ -1275,38 +1234,15 @@ class PokedexWindow:
             image=ctk.CTkImage(self._artwork_image, size=size)
         )
 
-    # --- Execução em segundo plano -------------------------------------
+    # --- Avisos -----------------------------------------------------------
 
-    def _run_in_background[T](
-        self, task: Callable[[], T], on_success: Callable[[T], None]
-    ) -> Future:
-        """Executa `task` em outra thread para a janela não travar."""
-        future = self._executor.submit(task)
-        self._wait_for(future, on_success)
-        return future
-
-    def _wait_for[T](
-        self, future: Future, on_success: Callable[[T], None]
-    ) -> None:
-        """Confere o resultado de tempos em tempos.
-
-        O Tkinter não é thread-safe: só a thread da interface pode mexer
-        nos widgets, por isso o resultado é tratado aqui, e não na thread
-        que fez o download.
-        """
-        if not future.done():
-            self._root.after(
-                CHECK_INTERVAL_MS, self._wait_for, future, on_success
-            )
-            return
-        if future.cancelled():
-            return
-        try:
-            result = future.result()
-        except (OSError, ValueError):  # sem rede, erro HTTP, JSON inválido
-            self._show_status(CONNECTION_ERROR, ERROR_COLOR)
+    def _report_error(self, message: str, error: Exception) -> None:
+        """Erro nunca fica em silêncio: vai para o log e para a lateral."""
+        if isinstance(error, OSError):
+            logger.warning("%s (%s)", message, error)
         else:
-            on_success(result)
+            logger.error(message, exc_info=error)
+        self._show_status(message, ERROR_COLOR)
 
     def _show_status(
         self, text: str, color: ThemeColor = MUTED_COLOR
@@ -1321,7 +1257,8 @@ class PokedexWindow:
             self._status_job = None
 
     def _close(self) -> None:
-        self._closing.set()
-        self._executor.shutdown(wait=False, cancel_futures=True)
-        self._icon_executor.shutdown(wait=False, cancel_futures=True)
+        self._details.close()
+        self._prefetch.close()
+        self._icons.close()
+        self._cover.destroy()
         self._root.destroy()

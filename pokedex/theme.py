@@ -79,7 +79,6 @@ SCROLLBAR_WIDTH = 16
 SIDEBAR_WIDTH = 2 * WINDOW_MARGIN + LIST_WIDTH + SCROLLBAR_WIDTH + 1
 SEARCH_HEIGHT = 38
 ROW_HEIGHT = 34  # linhas da lista
-LIST_TEXT_HEIGHT = 26  # textos dentro da linha, longe do anel de foco
 ROW_GAP = 2  # entre as linhas da lista
 PILL_HEIGHT = 26
 BAR_HEIGHT = 8

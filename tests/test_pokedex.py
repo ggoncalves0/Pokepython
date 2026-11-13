@@ -1,13 +1,17 @@
 import json
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
 from pokedex.cache import FileCache
 from pokedex.models import PokedexEntry
+from pokedex import pokeapi
 from pokedex.pokeapi import (
     API_URL,
     ICON_URL,
+    POKEMON_CACHE_DIR,
     PokeApiRepository,
     format_name,
     parse_pokemon,
@@ -59,6 +63,9 @@ from pokedex.ui import (
 )
 
 ARTWORK_URL = "https://exemplo.com/25.png"
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+ARTWORK_PNG = PNG_SIGNATURE + b"imagem"
+ICON_PNG = PNG_SIGNATURE + b"icone"
 
 # Recorte da resposta real de https://pokeapi.co/api/v2/pokemon/25
 PIKACHU_RESPONSE = {
@@ -297,7 +304,7 @@ class RenderTitleTest(unittest.TestCase):
         # Sem suavização: cada pixel é transparente ou da cor do texto.
         image = render_title("Pokédex #001", 16, "#1c1d26")
         self.assertEqual(image.height, 16)
-        alphas = {alpha for *_, alpha in image.getdata()}
+        alphas = set(image.getchannel("A").tobytes())
         self.assertEqual(alphas, {0, 255})
 
 
@@ -352,13 +359,14 @@ class PokeApiRepositoryTest(unittest.TestCase):
     def setUp(self) -> None:
         temporary_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temporary_dir.cleanup)
-        self.cache = FileCache(Path(temporary_dir.name))
+        self.cache_dir = Path(temporary_dir.name)
+        self.cache = FileCache(self.cache_dir)
         pokedex = {"results": [{"name": "bulbasaur"}, {"name": "ivysaur"}]}
         self.api = FakeApi({
             f"{API_URL}/pokemon?limit=151": json.dumps(pokedex).encode(),
             f"{API_URL}/pokemon/25": json.dumps(PIKACHU_RESPONSE).encode(),
-            ARTWORK_URL: b"imagem",
-            ICON_URL.format(number=25): b"icone",
+            ARTWORK_URL: ARTWORK_PNG,
+            ICON_URL.format(number=25): ICON_PNG,
         })
 
     def test_lists_entries_numbered_in_api_order(self) -> None:
@@ -373,7 +381,7 @@ class PokeApiRepositoryTest(unittest.TestCase):
         for _ in range(2):
             repository = PokeApiRepository(self.cache, self.api)
             pikachu = repository.get_pokemon(25)
-            self.assertEqual(repository.get_artwork(pikachu), b"imagem")
+            self.assertEqual(repository.get_artwork(pikachu), ARTWORK_PNG)
 
         self.assertEqual(pikachu, parse_pokemon(PIKACHU_RESPONSE))
         self.assertEqual(
@@ -383,9 +391,124 @@ class PokeApiRepositoryTest(unittest.TestCase):
     def test_downloads_each_icon_only_once(self) -> None:
         for _ in range(2):
             repository = PokeApiRepository(self.cache, self.api)
-            self.assertEqual(repository.get_icon(25), b"icone")
+            self.assertEqual(repository.get_icon(25), ICON_PNG)
 
         self.assertEqual(self.api.requests, [ICON_URL.format(number=25)])
+
+    def test_corrupt_json_in_cache_is_downloaded_again(self) -> None:
+        repository = PokeApiRepository(self.cache, self.api)
+        repository.get_pokemon(25)
+        path = self.cache_dir / POKEMON_CACHE_DIR / "25.json"
+        path.write_text("{pela metade", encoding="utf-8")
+
+        with self.assertLogs("pokedex.pokeapi", "WARNING"):
+            pikachu = PokeApiRepository(self.cache, self.api).get_pokemon(25)
+
+        self.assertEqual(pikachu, parse_pokemon(PIKACHU_RESPONSE))
+        self.assertEqual(self.api.requests.count(f"{API_URL}/pokemon/25"), 2)
+
+    def test_corrupt_image_in_cache_is_downloaded_again(self) -> None:
+        PokeApiRepository(self.cache, self.api).get_icon(25)
+        (self.cache_dir / "icons" / "25.png").write_bytes(b"lixo")
+
+        with self.assertLogs("pokedex.pokeapi", "WARNING"):
+            icon = PokeApiRepository(self.cache, self.api).get_icon(25)
+
+        self.assertEqual(icon, ICON_PNG)
+        self.assertEqual(len(self.api.requests), 2)
+
+    def test_download_that_is_not_an_image_is_not_cached(self) -> None:
+        self.api.responses[ICON_URL.format(number=25)] = b"<html>erro</html>"
+        with self.assertRaises(ValueError):
+            PokeApiRepository(self.cache, self.api).get_icon(25)
+        self.assertFalse((self.cache_dir / "icons" / "25.png").exists())
+
+
+class FileCacheTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_dir.cleanup)
+        self.directory = Path(temporary_dir.name)
+        self.cache = FileCache(self.directory)
+
+    def test_writers_of_the_same_item_do_not_collide(self) -> None:
+        # Pré-carga e clique podem baixar o mesmo item ao mesmo tempo.
+        errors: list[BaseException] = []
+
+        def write() -> None:
+            try:
+                self.cache.get_or_create(
+                    "pokemon/1.json", lambda: (time.sleep(0.01), b"{}")[1]
+                )
+            except BaseException as error:  # noqa: BLE001
+                errors.append(error)
+
+        threads = [threading.Thread(target=write) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(
+            (self.directory / "pokemon" / "1.json").read_bytes(), b"{}"
+        )
+        leftovers = list((self.directory / "pokemon").glob("*.tmp"))
+        self.assertEqual(leftovers, [])
+
+    def test_discard_removes_item(self) -> None:
+        self.cache.get_or_create("a.bin", lambda: b"x")
+        self.cache.discard("a.bin")
+        self.cache.discard("a.bin")  # de novo: não é erro
+        self.assertFalse((self.directory / "a.bin").exists())
+
+
+class DownloadTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.calls: list[str] = []
+        original_get = pokeapi._get_once
+        original_backoff = pokeapi.BACKOFF_SECONDS
+        pokeapi.BACKOFF_SECONDS = (0.0, 0.0, 0.0)
+
+        def restore() -> None:
+            pokeapi._get_once = original_get
+            pokeapi.BACKOFF_SECONDS = original_backoff
+
+        self.addCleanup(restore)
+
+    def fake(self, *outcomes: object) -> None:
+        """Cada chamada devolve (ou levanta) o próximo resultado."""
+        remaining = list(outcomes)
+
+        def get_once(url: str) -> bytes:
+            self.calls.append(url)
+            outcome = remaining.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            assert isinstance(outcome, bytes)
+            return outcome
+
+        pokeapi._get_once = get_once
+
+    def test_retries_with_growing_wait_until_it_works(self) -> None:
+        self.fake(OSError("caiu"), TimeoutError(), b"ok")
+        self.assertEqual(pokeapi.download("https://x/1"), b"ok")
+        self.assertEqual(len(self.calls), 3)
+
+    def test_gives_up_after_three_retries(self) -> None:
+        self.fake(*[OSError("sem rede")] * 4)
+        with self.assertRaises(OSError):
+            pokeapi.download("https://x/1")
+        self.assertEqual(len(self.calls), 1 + pokeapi.RETRIES)
+
+    def test_does_not_retry_not_found(self) -> None:
+        self.fake(pokeapi.DownloadError("https://x/1", 404))
+        with self.assertRaises(pokeapi.DownloadError):
+            pokeapi.download("https://x/1")
+        self.assertEqual(len(self.calls), 1)
+
+    def test_retries_server_errors(self) -> None:
+        self.fake(pokeapi.DownloadError("https://x/1", 503), b"ok")
+        self.assertEqual(pokeapi.download("https://x/1"), b"ok")
 
 
 if __name__ == "__main__":
